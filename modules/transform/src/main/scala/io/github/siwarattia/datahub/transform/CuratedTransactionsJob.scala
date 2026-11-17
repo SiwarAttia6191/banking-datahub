@@ -80,16 +80,20 @@ object CuratedTransactionsJob {
     val valid = flagged.filter(col("reject_reason").isNull)
     log.info(s"[$date] transactions staged: ${latest.count()}, valid: ${valid.count()}, rejects: ${rejects.count()}")
 
-    // ---- fx conversion: day rate first, latest available rate as fallback ---
-    val dayRates = allRates.filter(col("rate_date") === date)
-      .select(col("quote_ccy").as("rate_ccy"), col("rate").as("day_rate"))
+    // ---- fx conversion: the row's own day rate first, latest available as fallback ---
+    // the day-rate join keys on the ROW's value date, so backlog mode (--date all)
+    // rates each day with its own rate instead of one global day
+    val dayRates = allRates
+      .select(col("rate_date").cast("date").as("rate_day"),
+        col("quote_ccy").as("rate_ccy"), col("rate").as("day_rate"))
     val fallbackRates = allRates
       .groupBy("quote_ccy")
       .agg(max(struct(col("rate_date"), col("rate"))).as("latest"))
       .select(col("quote_ccy").as("fb_ccy"), col("latest.rate").as("fallback_rate"))
 
     val converted = valid
-      .join(broadcast(dayRates), col("rate_ccy") === col("currency"), "left")
+      .join(broadcast(dayRates),
+        col("rate_ccy") === col("currency") && col("rate_day") === col("value_date_typed"), "left")
       .join(broadcast(fallbackRates), col("fb_ccy") === col("currency"), "left")
       .withColumn("fx_fallback_used", col("day_rate").isNull && col("fallback_rate").isNotNull)
       .withColumn("rate_applied", coalesce(col("day_rate"), col("fallback_rate")))
