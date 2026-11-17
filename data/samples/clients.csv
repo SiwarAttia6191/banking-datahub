@@ -1,0 +1,6 @@
+client_id,name,client_type,country,risk_level,kyc_status
+CLT00001,Amira Silva,retail,IT,low,verified
+CLT00002,Pablo Haddad,retail,CH,low,verified
+CLT00003,Mansour Printing SARL,corporate,GB,low,verified
+CLT00004,Tomas Costa,retail,CH,low,verified
+CLT00005,Youssef Weber,retail,NL,low,verified
