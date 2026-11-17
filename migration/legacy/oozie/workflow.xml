@@ -1,0 +1,54 @@
+<!--
+  Legacy daily transaction load - oozie workflow, kept verbatim as the migration
+  reference. Modern equivalent: airflow/dags (phase 4).
+  Mapping and cutover strategy: docs/migration-guide.md
+-->
+<workflow-app xmlns="uri:oozie:workflow:0.5" name="daily_transaction_load">
+
+  <start to="prepare-staging"/>
+
+  <action name="prepare-staging">
+    <fs>
+      <mkdir path="${nameNode}${staging}/transactions/${jobDate}"/>
+    </fs>
+    <ok to="load-transactions"/>
+    <error to="kill"/>
+  </action>
+
+  <action name="load-transactions">
+    <hive xmlns="uri:oozie:hive-action:0.6">
+      <job-tracker>${jobTracker}</job-tracker>
+      <name-node>${nameNode}</name-node>
+      <configuration>
+        <property>
+          <name>mapred.job.queue.name</name>
+          <value>${queueName}</value>
+        </property>
+      </configuration>
+      <script>daily_load.hql</script>
+      <param>jobDate=${jobDate}</param>
+      <param>inbox=${inbox}</param>
+    </hive>
+    <ok to="check-row-count"/>
+    <error to="kill"/>
+  </action>
+
+  <action name="check-row-count">
+    <shell xmlns="uri:oozie:shell-action:0.3">
+      <job-tracker>${jobTracker}</job-tracker>
+      <name-node>${nameNode}</name-node>
+      <exec>row_count_check.sh</exec>
+      <argument>${nameNode}</argument>
+      <argument>${inbox}</argument>
+      <argument>${jobDate}</argument>
+    </shell>
+    <ok to="end"/>
+    <error to="kill"/>
+  </action>
+
+  <kill name="kill">
+    <message>daily_transaction_load failed: ${wf:errorMessage(wf:lastErrorNode())}</message>
+  </kill>
+
+  <end name="end"/>
+</workflow-app>

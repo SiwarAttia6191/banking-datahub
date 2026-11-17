@@ -1,0 +1,50 @@
+<!--
+  Daily coordinator for the legacy transaction load: one run per day, gated on
+  the arrival of the day's feed (dataset availability acts as the file sensor).
+  Modern equivalent: airflow schedule + deferrable sensor - see docs/migration-guide.md
+-->
+<coordinator-app xmlns="uri:oozie:coordinator:0.4"
+                 name="daily_transaction_load_coord"
+                 frequency="${coordMinutes}"
+                 start="${coordStart}"
+                 end="${coordEnd}"
+                 timezone="Europe/Paris">
+
+  <controls>
+    <timeout>120</timeout>
+    <concurrency>1</concurrency>
+  </controls>
+
+  <datasets>
+    <dataset name="txn_feed"
+             frequency="${coordMinutes}"
+             initial-instance="${coordStart}"
+             timezone="Europe/Paris">
+      <uri-template>${inbox}/transactions/business_date=${YEAR}${MONTH}${DAY}</uri-template>
+      <done-flag></done-flag>
+    </dataset>
+  </datasets>
+
+  <input-events>
+    <data-in name="txn_feed_input" dataset="txn_feed">
+      <start-instance>${coord:current(0)}</start-instance>
+      <end-instance>${coord:current(0)}</end-instance>
+    </data-in>
+  </input-events>
+
+  <action>
+    <workflow>
+      <app-path>${workflowAppUri}</app-path>
+      <configuration>
+        <property>
+          <name>jobDate</name>
+          <value>${coord:formatTime(coord:nominalTime(), 'yyyy-MM-dd')}</value>
+        </property>
+        <property>
+          <name>inbox</name>
+          <value>${inbox}</value>
+        </property>
+      </configuration>
+    </workflow>
+  </action>
+</coordinator-app>
