@@ -29,3 +29,6 @@ logs/
 # os
 .DS_Store
 Thumbs.db
+
+# sbt meta-build output
+project/project/
