@@ -1,0 +1,62 @@
+package io.github.siwarattia.datahub.common.config
+
+import com.typesafe.config.{Config, ConfigFactory}
+
+final case class SparkConfig(master: String)
+
+final case class RulesConfig(
+    volumeZscoreThreshold: Double,
+    maxRejectRate: Double,
+    baselineWindowDays: Int,
+    baselineOffsetDays: Int,
+    minVectorLength: Int
+)
+
+final case class S3Config(
+    endpoint: String,
+    accessKey: String,
+    secretKey: String,
+    rawBucket: String,
+    curatedBucket: String,
+    pathStyleAccess: Boolean
+)
+
+final case class PipelineConfig(environment: String, spark: SparkConfig, rules: RulesConfig, s3: S3Config)
+
+object PipelineConfig {
+
+  /** Loads application.conf from the classpath. Environment differences are handled two ways:
+    *  - a full config override: -Dconfig.file=/path/to/other.conf
+    *  - single-value overrides via environment variables (see the ${?VAR} fallbacks in
+    *    application.conf), which is how the docker-compose Spark container points at minio
+    *    instead of localhost.
+    */
+  def load(): PipelineConfig = load(ConfigFactory.load())
+
+  def load(config: Config): PipelineConfig = {
+    val s3 = config.getConfig("datahub.s3")
+    val spark = config.getConfig("datahub.spark")
+    val rules = config.getConfig("datahub.rules")
+    PipelineConfig(
+      environment = config.getString("datahub.environment"),
+      spark = SparkConfig(
+        master = spark.getString("master")
+      ),
+      rules = RulesConfig(
+        volumeZscoreThreshold = rules.getDouble("volume-zscore-threshold"),
+        maxRejectRate = rules.getDouble("max-reject-rate"),
+        baselineWindowDays = rules.getInt("baseline-window-days"),
+        baselineOffsetDays = rules.getInt("baseline-offset-days"),
+        minVectorLength = rules.getInt("min-vector-length")
+      ),
+      s3 = S3Config(
+        endpoint        = s3.getString("endpoint"),
+        accessKey       = s3.getString("access-key"),
+        secretKey       = s3.getString("secret-key"),
+        rawBucket       = s3.getString("raw-bucket"),
+        curatedBucket   = s3.getString("curated-bucket"),
+        pathStyleAccess = s3.getBoolean("path-style-access")
+      )
+    )
+  }
+}

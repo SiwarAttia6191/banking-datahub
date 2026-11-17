@@ -1,0 +1,31 @@
+# scala / sbt
+target/
+.bloop/
+.bsp/
+.metals/
+metals.sbt
+project/target/
+project/.bloop/
+
+# ide
+.idea/
+.vscode/
+*.iml
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# data & logs (the generator writes here; only data/samples is committed)
+data/output/
+logs/
+*.log
+
+# env & secrets
+.env
+
+# os
+.DS_Store
+Thumbs.db
