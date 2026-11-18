@@ -18,10 +18,14 @@ final case class S3Config(
     secretKey: String,
     rawBucket: String,
     curatedBucket: String,
+    legacyBucket: String,
     pathStyleAccess: Boolean
 )
 
-final case class PipelineConfig(environment: String, spark: SparkConfig, rules: RulesConfig, s3: S3Config)
+final case class ServingConfig(url: String, user: String, password: String)
+
+final case class PipelineConfig(environment: String, spark: SparkConfig, rules: RulesConfig,
+                                s3: S3Config, serving: ServingConfig)
 
 object PipelineConfig {
 
@@ -37,6 +41,7 @@ object PipelineConfig {
     val s3 = config.getConfig("datahub.s3")
     val spark = config.getConfig("datahub.spark")
     val rules = config.getConfig("datahub.rules")
+    val serving = config.getConfig("datahub.serving")
     PipelineConfig(
       environment = config.getString("datahub.environment"),
       spark = SparkConfig(
@@ -49,12 +54,18 @@ object PipelineConfig {
         baselineOffsetDays = rules.getInt("baseline-offset-days"),
         minVectorLength = rules.getInt("min-vector-length")
       ),
+      serving = ServingConfig(
+        url = serving.getString("url"),
+        user = serving.getString("user"),
+        password = serving.getString("password")
+      ),
       s3 = S3Config(
         endpoint        = s3.getString("endpoint"),
         accessKey       = s3.getString("access-key"),
         secretKey       = s3.getString("secret-key"),
         rawBucket       = s3.getString("raw-bucket"),
         curatedBucket   = s3.getString("curated-bucket"),
+        legacyBucket    = s3.getString("legacy-bucket"),
         pathStyleAccess = s3.getBoolean("path-style-access")
       )
     )

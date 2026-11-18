@@ -47,4 +47,12 @@ object S3Locations {
   /** per-run data-quality reports (json) */
   def dqReports(cfg: PipelineConfig): String =
     s"s3a://${cfg.s3.curatedBucket}/reports/dq"
+
+  /** legacy-style output of the baseline job (the hive script port), per domain */
+  def legacyDomain(cfg: PipelineConfig, domain: String): String =
+    s"s3a://${cfg.s3.legacyBucket}/$domain"
+
+  /** per-run reconciliation reports (json) */
+  def reconciliationReports(cfg: PipelineConfig): String =
+    s"s3a://${cfg.s3.curatedBucket}/reports/reconciliation"
 }
