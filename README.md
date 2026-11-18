@@ -14,6 +14,9 @@ flowchart LR
     R -->|Spark transform jobs| C[(S3 - CURATED)]
     C -->|publish| P[(PostgreSQL - SERVING)]
     C -->|query in place| D[Dremio - BI on the lake]
+    P -->|index| E[Elasticsearch + Kibana<br/>ops dashboard]
+    P -.case handoff.-> H[alert cases<br/>NEW → IN_REVIEW → CLOSED]
+    P -.ask.-> B[Data assistant<br/>guarded, grounded]
     A[Airflow] -.orchestrates: sensor, ingest, transform, DQ, publish.-> R & C & P
     G[GitLab CI / Jenkins] -.build · test · package.-> I[Docker images]
     I -.same jobs via manifests.-> K[Kubernetes]
@@ -37,6 +40,9 @@ data contracts: [docs/datamodel.md](docs/datamodel.md)
 | unit tests with a local Spark session | `modules/*/src/test` |
 | CI: GitLab CI + Jenkinsfile | `.gitlab-ci.yml`, `Jenkinsfile` |
 | Dremio: bi queries straight on the lake (no data copy) | dremio service + `docs/dremio.md` |
+| kibana ops dashboard over the serving layer (alert indexing + data views) | `scripts/publish_to_es.py`, `docs/ops-dashboard.md` |
+| alert → case handoff with lifecycle + audit trail (appian-style) | `scripts/alert_cases.py`, `docs/case-handoff.md` |
+| data assistant: grounded, guarded answers over the serving tables | `scripts/data_assistant.py`, `docs/data-assistant.md` |
 | Spark on Kubernetes manifests | `k8s/` |
 
 This table is the target state — until a phase is checked in the Roadmap, its rows describe
@@ -45,7 +51,8 @@ what is being built, not what exists yet.
 ## Stack
 
 Scala 2.12 · Spark 3.5 (sbt multi-module) · SeaweedFS (S3-compatible object storage) ·
-PostgreSQL (serving) · Dremio (bi on the lake) · Airflow · Python (synthetic data generator) ·
+PostgreSQL (serving) · Dremio (bi on the lake) · Elasticsearch + Kibana (ops
+dashboard) · Airflow · Python (synthetic data generator + serving scripts) ·
 Docker Compose · GitLab CI / Jenkins · Kubernetes manifests
 
 ## Quickstart
@@ -70,7 +77,7 @@ What it does: uploads the feeds to the raw inbox on the s3 store, assembles the 
 submits the six jobs with spark-submit in the official `apache/spark` container on the compose
 network, landing parquet partitions in `lake-raw/raw/` and `lake-curated/` plus the DQ report.
 S3 master UI: http://localhost:9333 · Dremio: http://localhost:9047 · Airflow UI
-http://localhost:8080 (phase 4).
+http://localhost:8080 · Kibana: http://localhost:5601 (after `scripts/publish_to_es.py`).
 
 ## Project layout
 
@@ -81,9 +88,10 @@ modules/transform    curated jobs + features     (phase 2)
 modules/quality      DQ checks + reports         (phase 2)
 migration/           legacy Oozie/Hive artifacts + the migration track
 airflow/             DAGs                        (phase 4)
-k8s/                 Spark-on-K8s manifests      (phase 5)
-scripts/             data generator, inbox upload, bucket bootstrap
-docs/                architecture (sequence diagrams), data model, migration guide, runbook
+k8s/                 Spark-on-K8s manifests      (stretch)
+scripts/             data generator, inbox upload, bucket bootstrap, serving/dashboard/case tools
+docs/                architecture (sequence diagrams), data model, migration guide,
+                     dremio, ops dashboard, case handoff, data assistant
 ```
 
 ## Roadmap
@@ -93,7 +101,9 @@ docs/                architecture (sequence diagrams), data model, migration gui
 - [x] phase 2 — curated transformations, features, detection rules, DQ checks, pseudonymization
 - [x] phase 3 — unit tests (19 green), legacy baseline + reconciliation job, GitLab CI + Jenkinsfile
 - [x] phase 4 — Airflow orchestration (eod chain + reconciliation dags), Oozie-to-Airflow migration study
-- [ ] phase 5 — Kubernetes manifests, runbook
+- [x] phase 5 — serving & bi: dremio on the lake, kibana ops dashboard, alert case
+      handoff (appian-style), data-assistant bot grounded in the serving layer
+- [ ] stretch — Spark on Kubernetes manifests, runbook, kafka event ingestion
 
 ## License
 
