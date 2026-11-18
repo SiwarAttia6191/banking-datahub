@@ -7,7 +7,7 @@ import io.github.siwarattia.datahub.common.util.Args
 import io.github.siwarattia.datahub.transform.validation.IbanChecker
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.slf4j.{Logger, LoggerFactory}
 
 /** Build the curated transactions layer from the raw zone - the Spark/Scala port of
@@ -19,6 +19,8 @@ import org.slf4j.{Logger, LoggerFactory}
   *  - publish only business-valid rows; everything else goes to the rejects path
   *
   * Raw columns are strings; this job owns the typing decisions (casting, dates).
+  * The transformation itself lives in `curate` - a pure function (DataFrames in,
+  * DataFrames out) so it can be unit tested without storage or a cluster.
   */
 object CuratedTransactionsJob {
 
@@ -51,6 +53,49 @@ object CuratedTransactionsJob {
       .select(col("rate_date"), col("quote_ccy"), col("rate").cast("double").as("rate"))
       .filter(if (date == "all") lit(true) else col("rate_date") <= date)
 
+    val (curated, rejects) = curate(transactions, allRates, accounts)
+    log.info(s"[$date] curated: ${curated.count()}, rejects: ${rejects.count()}")
+
+    // ---- publish curated transactions + rejects ----------------------------
+    curated.write.mode("overwrite").partitionBy("business_date")
+      .parquet(S3Locations.curatedDomain(config, "transactions"))
+
+    rejects.write.mode("overwrite").partitionBy("business_date")
+      .parquet(S3Locations.rejectsDomain(config, "transactions"))
+
+    // ---- curated reference domains -----------------------------------------
+    accounts
+      .withColumn("iban_valid", IbanChecker.isValidUdf(col("iban")))
+      .select(col("account_id"), col("client_id"), col("iban"), col("iban_valid"),
+        col("currency"), col("status"))
+      .write.mode("overwrite").parquet(S3Locations.curatedDomain(config, "accounts"))
+
+    // identity leaves the raw zone only in pseudonymized form: the original name
+    // stays in raw (immutable), curated carries hash + mask, serving never sees it
+    clients
+      .select(
+        col("client_id"), col("client_type"), col("country"), col("risk_level"), col("kyc_status"),
+        sha2(col("name"), 256).as("client_name_sha2"),
+        concat(substring(col("name"), 1, 1), lit("***")).as("client_name_masked"))
+      .write.mode("overwrite").parquet(S3Locations.curatedDomain(config, "clients"))
+
+    restricted
+      .select(col("country_code"), col("list_source"),
+        to_date(col("effective_date"), "yyyy-MM-dd").as("effective_date"))
+      .write.mode("overwrite").parquet(S3Locations.curatedDomain(config, "restricted_countries"))
+
+    log.info(s"[$date] curated transactions + rejects + reference domains written")
+  }
+
+  /** Pure transformation: stage, dedup, validate, fx-convert. Returns
+    * (curated transactions, rejects). No io - unit tests feed it fixtures.
+    *
+    * fx semantics: the row's own day rate first (the day-rate join keys on the ROW's
+    * value date, so backlog mode rates each day with its own rate instead of one
+    * global day), then the latest available rate per currency as the documented
+    * fallback, flagged via fx_fallback_used.
+    */
+  def curate(transactions: DataFrame, allRates: DataFrame, accounts: DataFrame): (DataFrame, DataFrame) = {
     // ---- stage: own the typing decisions ----------------------------------
     val staged = transactions
       .withColumn("amount_num", col("amount").cast("double"))
@@ -78,11 +123,8 @@ object CuratedTransactionsJob {
 
     val rejects = flagged.filter(col("reject_reason").isNotNull)
     val valid = flagged.filter(col("reject_reason").isNull)
-    log.info(s"[$date] transactions staged: ${latest.count()}, valid: ${valid.count()}, rejects: ${rejects.count()}")
 
     // ---- fx conversion: the row's own day rate first, latest available as fallback ---
-    // the day-rate join keys on the ROW's value date, so backlog mode (--date all)
-    // rates each day with its own rate instead of one global day
     val dayRates = allRates
       .select(col("rate_date").cast("date").as("rate_day"),
         col("quote_ccy").as("rate_ccy"), col("rate").as("day_rate"))
@@ -99,45 +141,19 @@ object CuratedTransactionsJob {
       .withColumn("rate_applied", coalesce(col("day_rate"), col("fallback_rate")))
       .withColumn("amount_eur", col("amount_num") / col("rate_applied"))
 
-    // ---- publish curated transactions + rejects ----------------------------
-    converted
+    val curated = converted
       .select(
         col("txn_id"), col("account_id"), col("direction"),
         col("amount_num").as("amount"), col("currency"), col("amount_eur"),
         col("fx_fallback_used"), col("rate_applied"),
         col("channel"), col("counterparty_name"), col("counterparty_bic"),
         col("counterparty_country"), col("value_date_typed").as("business_date"))
-      .write.mode("overwrite").partitionBy("business_date")
-      .parquet(S3Locations.curatedDomain(config, "transactions"))
 
-    rejects
+    val rejectsOut = rejects
       .select(
         col("txn_id"), col("account_id"), col("amount"), col("currency"),
         col("reject_reason"), col("value_date_typed").as("business_date"))
-      .write.mode("overwrite").partitionBy("business_date")
-      .parquet(S3Locations.rejectsDomain(config, "transactions"))
 
-    // ---- curated reference domains -----------------------------------------
-    accounts
-      .withColumn("iban_valid", IbanChecker.isValidUdf(col("iban")))
-      .select(col("account_id"), col("client_id"), col("iban"), col("iban_valid"),
-        col("currency"), col("status"))
-      .write.mode("overwrite").parquet(S3Locations.curatedDomain(config, "accounts"))
-
-    // identity leaves the raw zone only in pseudonymized form: the original name
-    // stays in raw (immutable), curated carries hash + mask, serving never sees it
-    clients
-      .select(
-        col("client_id"), col("client_type"), col("country"), col("risk_level"), col("kyc_status"),
-        sha2(col("name"), 256).as("client_name_sha2"),
-        concat(substring(col("name"), 1, 1), lit("***")).as("client_name_masked"))
-      .write.mode("overwrite").parquet(S3Locations.curatedDomain(config, "clients"))
-
-    restricted
-      .select(col("country_code"), col("list_source"),
-        to_date(col("effective_date"), "yyyy-MM-dd").as("effective_date"))
-      .write.mode("overwrite").parquet(S3Locations.curatedDomain(config, "restricted_countries"))
-
-    log.info(s"[$date] curated transactions + rejects + reference domains written")
+    (curated, rejectsOut)
   }
 }

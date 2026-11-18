@@ -1,12 +1,12 @@
 package io.github.siwarattia.datahub.transform
 
-import io.github.siwarattia.datahub.common.config.PipelineConfig
+import io.github.siwarattia.datahub.common.config.{PipelineConfig, RulesConfig}
 import io.github.siwarattia.datahub.common.io.S3Locations
 import io.github.siwarattia.datahub.common.spark.SparkSessions
 import io.github.siwarattia.datahub.common.util.Args
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.slf4j.{Logger, LoggerFactory}
 import java.time.LocalDate
 
@@ -24,7 +24,9 @@ import java.time.LocalDate
   *  - z-score AND IQR/boxplot bounds as the two outlier signals
   *
   * Every statistical knob lives in configuration (datahub.rules) because each
-  * geography tuned its own rule book - same as the production system.
+  * geography tuned its own rule book. The feature computation lives in
+  * `computeFeatures` - a pure function (DataFrame in, DataFrame out) so it can be
+  * unit tested without storage or a cluster.
   */
 object AccountFeaturesJob {
 
@@ -49,6 +51,19 @@ object AccountFeaturesJob {
     val txns = spark.read.parquet(S3Locations.curatedDomain(config, "transactions"))
       .filter(col("business_date") <= lit(date).cast("date"))
 
+    val features = computeFeatures(txns, rules)
+    val dayFeatures = features.filter(col("business_date") === lit(date).cast("date"))
+    dayFeatures.write.mode("overwrite").partitionBy("business_date")
+      .parquet(S3Locations.curatedDomain(config, "account_day_features"))
+
+    log.info(s"[$date] account-day features written (${dayFeatures.count()} account-direction groups)")
+  }
+
+  /** Pure feature computation over curated transactions. Returns all account-day
+    * features (every business date present in the input); the caller publishes the
+    * partition it needs.
+    */
+  def computeFeatures(txns: DataFrame, rules: RulesConfig): DataFrame = {
     val daily = txns.groupBy("account_id", "direction", "business_date")
       .agg(
         count(lit(1)).as("txn_count"),
@@ -64,33 +79,37 @@ object AccountFeaturesJob {
       -1L * (rules.baselineOffsetDays + rules.baselineWindowDays) * 86400L,
       -1L * rules.baselineOffsetDays * 86400L)
 
-    val withBaseline = daily
+    // rolling 7-day windows: calendar-exact via rangeBetween on epoch seconds
+    val last7Days = byDay.rangeBetween(-6L * 86400L, 0L)
+    val rolling = daily
+      .withColumn("sum_7d_eur", sum("day_sum_eur").over(last7Days))
+      .withColumn("count_7d", count(lit(1)).over(last7Days))
+
+    val withBaseline = rolling
       .withColumn("baseline_points", count(lit(1)).over(baseline))
       .withColumn("baseline_mean_log", avg("day_log").over(baseline))
       .withColumn("baseline_std_log", stddev("day_log").over(baseline))
 
     // boxplot bounds per group over all baseline-eligible history (simplification:
     // production computed them per rolling window)
-    val boxCutoff = LocalDate.parse(date).minusDays(rules.baselineOffsetDays).toString
-    val boxStats = daily
-      .filter(col("business_date") <= lit(boxCutoff).cast("date"))
+    val baselineEligible = daily
+      .withColumn("_last_day", max("business_date").over(
+        byDay.rangeBetween(Window.unboundedPreceding, Window.unboundedFollowing)))
+    // eligible = business dates at least baseline-offset days before the group's last date
+    val boxStats = baselineEligible
+      .filter(col("business_date") <= date_sub(col("_last_day"), rules.baselineOffsetDays))
       .groupBy("account_id", "direction")
       .agg(
         percentile_approx(col("day_log"), lit(0.25), lit(10000)).as("q1"),
         percentile_approx(col("day_log"), lit(0.75), lit(10000)).as("q3"))
 
-    val features = withBaseline
+    withBaseline
       .join(boxStats, Seq("account_id", "direction"), "left")
       .withColumn("boxplot_upper", col("q3") + lit(1.5) * (col("q3") - col("q1")))
       .withColumn("zscore_day_log",
         when(col("baseline_points") >= rules.minVectorLength && col("baseline_std_log") > 0,
           (col("day_log") - col("baseline_mean_log")) / col("baseline_std_log")))
       .withColumn("boxplot_outlier", col("day_log") > col("boxplot_upper"))
-
-    val dayFeatures = features.filter(col("business_date") === lit(date).cast("date"))
-    dayFeatures.write.mode("overwrite").partitionBy("business_date")
-      .parquet(S3Locations.curatedDomain(config, "account_day_features"))
-
-    log.info(s"[$date] account-day features written (${dayFeatures.count()} account-direction groups)")
+      .drop("_max_day")
   }
 }

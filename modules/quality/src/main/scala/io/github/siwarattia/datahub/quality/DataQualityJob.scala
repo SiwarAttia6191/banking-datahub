@@ -5,20 +5,23 @@ import io.github.siwarattia.datahub.common.io.S3Locations
 import io.github.siwarattia.datahub.common.spark.SparkSessions
 import io.github.siwarattia.datahub.common.util.Args
 import org.apache.spark.sql.functions.col
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.slf4j.{Logger, LoggerFactory}
 
 /** Per-run data-quality report for one business date.
   *
   * The checks mirror what the generator injects and what the curated layer promises:
-  *  - reconciliation: raw count == curated + rejects (nothing lost, nothing invented)
+  *  - reconciliation: unique business keys: raw == curated + rejects (nothing lost,
+  *    nothing invented - the legacy contract deduplicates silently, so the invariant
+  *    counts unique keys)
   *  - dedup completeness: no duplicate business keys survive
   *  - reject rate within the configured threshold
   *  - referential integrity: every curated transaction has a curated account
   *  - fx conversion completeness and iban validity (quarantine severity)
   *
-  * The verdict lands in a json report next to the data; the orchestrator (phase 4)
-  * reads it as the go/no-go gate.
+  * The check evaluation lives in `evaluate` - a pure function (DataFrames in, results
+  * out) so it can be unit tested with in-memory fixtures. The verdict lands in a json
+  * report next to the data; the orchestrator (phase 4) reads it as the go/no-go gate.
   */
 object DataQualityJob {
 
@@ -44,15 +47,33 @@ object DataQualityJob {
     val rejects = spark.read.parquet(S3Locations.rejectsPartition(config, "transactions", date))
     val accounts = spark.read.parquet(S3Locations.curatedDomain(config, "accounts"))
 
-    val maxRejectRate = config.rules.maxRejectRate
+    val results = evaluate(rawTxns, curatedTxns, rejects, accounts, config.rules.maxRejectRate)
+    val report = DQReport(date, verdictOf(results), results)
+
+    import spark.implicits._
+    spark.createDataset(Seq(report))
+      .coalesce(1)
+      .write.mode("overwrite")
+      .json(S3Locations.dqReports(config))
+
+    report.results.foreach { r =>
+      log.info(s"[$date] dq ${r.check.severity}/${r.check.name}: " +
+        s"${if (r.passed) "PASS" else "FAIL"} (observed=${r.observed}, expected=${r.expected})")
+    }
+    log.info(s"[$date] dq verdict: ${report.verdict}")
+  }
+
+  /** Pure check evaluation: DataFrames in, check results out. No io, no verdict
+    * decision - the verdict is derived from the results by the caller.
+    */
+  def evaluate(rawTxns: DataFrame, curatedTxns: DataFrame, rejects: DataFrame,
+               accounts: DataFrame, maxRejectRate: Double): Seq[CheckResult] = {
 
     def result(check: DQCheck)(outcome: (Boolean, String, String)): CheckResult =
       CheckResult(check, outcome._1, outcome._2, outcome._3)
 
-    val results = Seq(
+    Seq(
       result(DQCheck("raw_vs_curated_reconciliation", DQCheck.Fail)) {
-        // the legacy contract deduplicates silently (keep latest), so the invariant is:
-        // every unique business key lands in curated or rejects
         val raw = rawTxns.count()
         val rawUnique = rawTxns.select("txn_id").distinct().count()
         val curated = curatedTxns.count()
@@ -88,22 +109,11 @@ object DataQualityJob {
         (invalid == 0, s"invalid_ibans=$invalid of $total", "0 invalid ibans")
       }
     )
-
-    def verdictOf(rs: Seq[CheckResult]): String =
-      if (rs.exists(r => !r.passed && r.check.severity == DQCheck.Fail)) "FAIL" else "PASS"
-
-    val report = DQReport(date, verdictOf(results), results)
-
-    import spark.implicits._
-    spark.createDataset(Seq(report))
-      .coalesce(1)
-      .write.mode("overwrite")
-      .json(S3Locations.dqReports(config))
-
-    report.results.foreach { r =>
-      log.info(s"[$date] dq ${r.check.severity}/${r.check.name}: " +
-        s"${if (r.passed) "PASS" else "FAIL"} (observed=${r.observed}, expected=${r.expected})")
-    }
-    log.info(s"[$date] dq verdict: ${report.verdict}")
   }
+
+  /** go/no-go: any failed fail-severity check blocks the publish decision; quarantine
+    * failures are visible without blocking.
+    */
+  def verdictOf(results: Seq[CheckResult]): String =
+    if (results.exists(r => !r.passed && r.check.severity == DQCheck.Fail)) "FAIL" else "PASS"
 }
