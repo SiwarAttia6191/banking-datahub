@@ -1,0 +1,25 @@
+# Airflow services for the banking-datahub demo: one container, standalone mode
+# (sqlite metadata, local executor - the laptop pattern). Dags and logs are mounted
+# from the repo; the docker socket lets the dag tasks submit spark containers.
+
+services:
+  airflow:
+    build:
+      context: .
+      dockerfile: docker/airflow.Dockerfile
+    container_name: banking-datahub-airflow
+    command: standalone
+    ports:
+      - "8080:8080"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - .:/project
+      - /var/run/docker.sock:/var/run/docker.sock
+    user: "${AIRFLOW_UID:-50000}:0"
+    group_add:
+      - "${DOCKER_GID:-999}"
