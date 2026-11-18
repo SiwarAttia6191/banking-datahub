@@ -19,7 +19,7 @@ ENDPOINT = os.getenv("S3_ENDPOINT", "http://localhost:8333")
 ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "dev-access-key")
 SECRET_KEY = os.getenv("S3_SECRET_KEY", "dev-secret-key")
 
-BUCKETS = ["lake-raw", "lake-curated"]
+BUCKETS = ["lake-raw", "lake-curated", "lake-legacy"]
 
 
 def main() -> None:
@@ -43,6 +43,7 @@ def main() -> None:
     print("lake layout:")
     print("  lake-raw/raw/{domain}/ingestion_date=YYYY-MM-DD/     (as landed, immutable)")
     print("  lake-curated/curated/{domain}/business_date=YYYY-MM-DD/ (validated, conformed)")
+    print("  lake-legacy/cur_transactions/business_date=YYYY-MM-DD/ (baseline job output)")
 
 
 if __name__ == "__main__":
