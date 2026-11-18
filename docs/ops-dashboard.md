@@ -8,6 +8,23 @@ views, and everything after that is kibana panels.
 This is deliberately a one-off index load, not a second pipeline - the lake and
 the postgres serving layer stay the sources of truth.
 
+## Security (dev grade, per the stack-security guide)
+
+Authentication is **on**: elasticsearch runs with `xpack.security.enabled=true`
+(transport tls auto-configured, http kept plain for the laptop) and kibana logs
+into it with credentials. The browser session asks you to log in.
+
+| credential | value | where |
+|---|---|---|
+| elastic superuser (your browser login) | `elastic` / `datahub-dev` | docker-compose env (`ELASTIC_PASSWORD`) |
+| kibana's server-to-server account | `kibana_system` / `datahub-dev` | built-in service user; password set once via `POST /_security/user/kibana_system/_password` (8.x forbids `elastic` as kibana's own account) |
+| publisher auth | `elastic` / `datahub-dev` | `scripts/publish_to_es.py` envs (`ES_USER`/`ES_PASSWORD`) |
+
+The dev password and the static kibana encryption keys live in the compose file
+**on purpose**: this stack never leaves the laptop, and a demo stack nobody can
+log into demos nothing. Anything real needs real secrets in a secrets manager -
+the wiring (auth on, least-privilege roles per consumer) would not change.
+
 ## Sources
 
 | index | from | granularity |
@@ -23,7 +40,7 @@ store - the same "bi on the lake" pattern as dremio, just programmatic.
 ## Run it
 
 ```bash
-docker compose up -d elasticsearch kibana   # ui: http://localhost:5601
+docker compose up -d elasticsearch kibana   # ui: http://localhost:5601 (log in: elastic / datahub-dev)
 python scripts/publish_to_es.py             # add --dry-run to see the counts only
 ```
 
@@ -51,7 +68,9 @@ rule ids) - the indexing and the data views are the automated part.
 | variable | default | what it is |
 |---|---|---|
 | `ES_URL` | `http://localhost:9200` | elasticsearch api |
+| `ES_USER` / `ES_PASSWORD` | `elastic` / `datahub-dev` | elasticsearch basic auth |
 | `KIBANA_URL` | `http://localhost:5601` | kibana api (data views) |
+| `KIBANA_USER` / `KIBANA_PASSWORD` | `elastic` / `datahub-dev` | kibana basic auth |
 | `PGHOST` / `PGPORT` / `PGUSER` / `PGPASSWORD` | localhost / 5436 / datahub / datahub | serving postgres |
 | `S3_ENDPOINT` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` | local s3 store, dev keys | risk_ratings read |
 

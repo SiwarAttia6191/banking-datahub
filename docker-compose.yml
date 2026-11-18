@@ -33,13 +33,18 @@ services:
       - dremio-data:/opt/dremio/data
 
   # the ops dashboard backend: the serving tables get indexed here (scripts/publish_to_es.py)
-  # and kibana visualizes them - one-off index load, not a second pipeline
+  # and kibana visualizes them - one-off index load, not a second pipeline.
+  # security per the stack-security guide, dev grade: authentication on
+  # (elastic / datahub-dev), transport tls auto-configured by es, http kept
+  # plain for the laptop - do not expose this stack anywhere
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.17.4
     container_name: banking-datahub-elasticsearch
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=false
+      - ELASTIC_PASSWORD=datahub-dev
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
     ports:
       - "9200:9200"
@@ -51,6 +56,17 @@ services:
     container_name: banking-datahub-kibana
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      # kibana's server-to-server account: the built-in kibana_system service user
+      # (the elastic superuser is forbidden here in 8.x) - password set once via
+      # the security api: POST /_security/user/kibana_system/_password
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=datahub-dev
+      # browser login stays the elastic superuser: elastic / datahub-dev
+      # dev encryption keys: static on purpose, this stack never leaves the laptop
+      # (kibana enforces a minimum length of 32 chars on each)
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=dev-only-saved-objects-key-0123456789
+      - XPACK_REPORTING_ENCRYPTIONKEY=dev-only-reporting-key-0123456789abcd
+      - XPACK_SECURITY_ENCRYPTIONKEY=dev-only-security-key-0123456789abcde
     ports:
       - "5601:5601"
     depends_on:

@@ -17,6 +17,7 @@ usage:
   python scripts/publish_to_es.py --dry-run  # counts only, no writes
 """
 
+import base64
 import datetime
 import json
 import os
@@ -31,6 +32,11 @@ import psycopg2
 
 ES_URL = os.getenv("ES_URL", "http://localhost:9200")
 KIBANA_URL = os.getenv("KIBANA_URL", "http://localhost:5601")
+# stack security is ON (see docker-compose.yml): elastic / datahub-dev, dev grade
+ES_USER = os.getenv("ES_USER", "elastic")
+ES_PASSWORD = os.getenv("ES_PASSWORD", "datahub-dev")
+KIBANA_USER = os.getenv("KIBANA_USER", "elastic")
+KIBANA_PASSWORD = os.getenv("KIBANA_PASSWORD", "datahub-dev")
 
 PG = dict(
     host=os.getenv("PGHOST", "localhost"),
@@ -59,13 +65,20 @@ DATA_VIEWS = {
 }
 
 
+def basic(user: str, password: str) -> str:
+    return "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+
+
 def http(method: str, url: str, body: dict | str | None = None,
-         content_type: str = "application/json", expect: tuple = (200, 201)) -> dict:
+         content_type: str = "application/json", expect: tuple = (200, 201),
+         auth: str | None = None) -> dict:
     data = None
     if body is not None:
         data = (body if isinstance(body, str) else json.dumps(body)).encode()
-    req = urllib.request.Request(url, data=data, method=method,
-                                 headers={"Content-Type": content_type})
+    headers = {"Content-Type": content_type}
+    if auth:
+        headers["Authorization"] = auth
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
             return json.loads(r.read().decode() or "{}")
@@ -77,13 +90,18 @@ def http(method: str, url: str, body: dict | str | None = None,
 
 
 def wait_for(url: str, name: str, tries: int = 60) -> None:
-    """Elasticsearch and kibana take a minute or two to boot after compose up."""
+    """Elasticsearch and kibana take a minute or two to boot after compose up;
+    a 401 also means the service is up (it answered, with security on)."""
     for i in range(tries):
         try:
             with urllib.request.urlopen(url, timeout=5) as r:
                 if r.status == 200:
                     print(f"{name} is up ({url})")
                     return
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                print(f"{name} is up ({url}, security on)")
+                return
         except (urllib.error.URLError, OSError):
             pass
         time.sleep(2)
@@ -103,7 +121,8 @@ def jsonable(v):
 def ensure_index(index: str) -> None:
     fields = ", ".join(f'"{k}": {{"type": "{v}"}}' for k, v in MAPPINGS[index].items())
     http("PUT", f"{ES_URL}/{index}",
-         {"mappings": {"properties": json.loads("{" + fields + "}")}})
+         {"mappings": {"properties": json.loads("{" + fields + "}")}},
+         auth=basic(ES_USER, ES_PASSWORD))
 
 
 def bulk_index(index: str, docs: list[dict]) -> int:
@@ -116,7 +135,7 @@ def bulk_index(index: str, docs: list[dict]) -> int:
         lines.append(json.dumps(doc, default=str))
     body = "\n".join(lines) + "\n"
     res = http("POST", f"{ES_URL}/_bulk?refresh=true", body,
-               content_type="application/x-ndjson")
+               content_type="application/x-ndjson", auth=basic(ES_USER, ES_PASSWORD))
     errors = [i for i, item in enumerate(res.get("items", [])) if item.get("index", {}).get("error")]
     if errors:
         raise RuntimeError(f"{index}: {len(errors)} bulk items failed: {res['items'][errors[0]]}")
@@ -163,7 +182,8 @@ def create_data_views() -> None:
             data=json.dumps({"attributes": {"title": index,
                                             "timeFieldName": time_field}}).encode(),
             method="POST",
-            headers={"Content-Type": "application/json", "kbn-xsrf": "true"})
+            headers={"Content-Type": "application/json", "kbn-xsrf": "true",
+                     "Authorization": basic(KIBANA_USER, KIBANA_PASSWORD)})
         with urllib.request.urlopen(req, timeout=60) as r:
             r.read()
         print(f"  data view '{view_id}' -> {index} (time field: {time_field})")
