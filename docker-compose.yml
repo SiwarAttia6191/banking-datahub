@@ -18,7 +18,7 @@ services:
       - "5436:5432"
     environment:
       POSTGRES_USER: datahub
-      POSTGRES_PASSWORD: datahub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-datahub}
       POSTGRES_DB: datahub
     volumes:
       - pg-data:/var/lib/postgresql/data
@@ -44,7 +44,9 @@ services:
       - discovery.type=single-node
       - xpack.security.enabled=true
       - xpack.security.http.ssl.enabled=false
-      - ELASTIC_PASSWORD=datahub-dev
+      # password overridable per machine via .env (gitignored); the public default
+      # keeps a fresh clone runnable - see .env.example
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:-datahub-dev}
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
     ports:
       - "9200:9200"
@@ -60,7 +62,7 @@ services:
       # (the elastic superuser is forbidden here in 8.x) - password set once via
       # the security api: POST /_security/user/kibana_system/_password
       - ELASTICSEARCH_USERNAME=kibana_system
-      - ELASTICSEARCH_PASSWORD=datahub-dev
+      - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD:-datahub-dev}
       # browser login stays the elastic superuser: elastic / datahub-dev
       # dev encryption keys: static on purpose, this stack never leaves the laptop
       # (kibana enforces a minimum length of 32 chars on each)

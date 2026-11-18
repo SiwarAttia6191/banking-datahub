@@ -25,6 +25,10 @@ The dev password and the static kibana encryption keys live in the compose file
 log into demos nothing. Anything real needs real secrets in a secrets manager -
 the wiring (auth on, least-privilege roles per consumer) would not change.
 
+Machine-specific values live in a gitignored `.env` at the repo root (compose
+reads it automatically; the compose defaults are `${VAR:-default}` fallbacks -
+see `.env.example` for the shape). The `.env` itself is never committed.
+
 ## Sources
 
 | index | from | granularity |
