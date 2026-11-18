@@ -32,7 +32,32 @@ services:
     volumes:
       - dremio-data:/opt/dremio/data
 
+  # the ops dashboard backend: the serving tables get indexed here (scripts/publish_to_es.py)
+  # and kibana visualizes them - one-off index load, not a second pipeline
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.4
+    container_name: banking-datahub-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.17.4
+    container_name: banking-datahub-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+
 volumes:
   weed-data:
   pg-data:
   dremio-data:
+  es-data:

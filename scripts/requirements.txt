@@ -1,6 +1,8 @@
 boto3>=1.34
 
-# lake browsing / parquet inspection
-# duckdb>=1.0
-# pandas>=2.0
-# pyarrow>=16.0
+# lake browsing / parquet inspection (peek_parquet.py) + risk_ratings read for the
+# ops dashboard publisher
+duckdb>=1.0
+
+# postgres reads: serving layer (ops dashboard publisher, case handoff, data assistant)
+psycopg2-binary>=2.9
