@@ -1,0 +1,47 @@
+# ci for the banking-datahub project: compile -> test -> package
+# the sbt docker image keeps the runner requirements to docker alone;
+# scala 2.12.18 is fetched per build.sbt, so the image's scala version is irrelevant
+
+stages:
+  - compile
+  - test
+  - package
+
+variables:
+  SBT_OPTS: "-Xmx2G -Dsbt.color=false"
+
+.sbt-job:
+  stage: compile
+  image: sbtscala/scala-sbt:eclipse-temurin-17.0.4_1.8.0_3.2.1_2.13.8
+  cache:
+    key: sbt-cache
+    paths:
+      - .sbt/
+      - .ivy2/
+      - .cache/coursier/
+      - project/target/
+      - modules/*/target/
+
+compile:
+  extends: .sbt-job
+  script:
+    - sbt compile
+
+test:
+  extends: .sbt-job
+  stage: test
+  script:
+    - sbt test
+
+package:
+  extends: .sbt-job
+  stage: package
+  script:
+    - sbt "ingestion/assembly" "transform/assembly" "quality/assembly" "baseline/assembly"
+  artifacts:
+    paths:
+      - modules/ingestion/target/scala-2.12/datahub-ingestion-assembly-0.1.0.jar
+      - modules/transform/target/scala-2.12/datahub-transform-assembly-0.1.0.jar
+      - modules/quality/target/scala-2.12/datahub-quality-assembly-0.1.0.jar
+      - modules/baseline/target/scala-2.12/datahub-baseline-assembly-0.1.0.jar
+    expire_in: 1 week
