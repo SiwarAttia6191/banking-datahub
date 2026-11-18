@@ -13,6 +13,7 @@ flowchart LR
     S[Source files<br/>transactions · clients · fx_rates] -->|Spark ingestion job| R[(S3 - RAW<br/>s3a://lake-raw)]
     R -->|Spark transform jobs| C[(S3 - CURATED)]
     C -->|publish| P[(PostgreSQL - SERVING)]
+    C -->|query in place| D[Dremio - BI on the lake]
     A[Airflow] -.orchestrates: sensor, ingest, transform, DQ, publish.-> R & C & P
     G[GitLab CI / Jenkins] -.build · test · package.-> I[Docker images]
     I -.same jobs via manifests.-> K[Kubernetes]
@@ -34,7 +35,8 @@ data contracts: [docs/datamodel.md](docs/datamodel.md)
 | Oozie → Airflow migration study (workflow.xml mapping, parallel-run cutover) | `docs/migration-guide.md` |
 | Hadoop → cloud migration track: legacy artifacts, HiveQL reference, reconciliation | `migration/`, `docs/migration-guide.md` |
 | unit tests with a local Spark session | `modules/*/src/test` |
-| CI: GitLab CI + Jenkinsfile | `.gitlab-ci.yml`, `cicd/Jenkinsfile` |
+| CI: GitLab CI + Jenkinsfile | `.gitlab-ci.yml`, `Jenkinsfile` |
+| Dremio: bi queries straight on the lake (no data copy) | dremio service + `docs/dremio.md` |
 | Spark on Kubernetes manifests | `k8s/` |
 
 This table is the target state — until a phase is checked in the Roadmap, its rows describe
@@ -42,16 +44,16 @@ what is being built, not what exists yet.
 
 ## Stack
 
-Scala 2.13 · Spark 3.5 (sbt multi-module) · SeaweedFS (S3-compatible object storage) ·
-PostgreSQL · Python (synthetic data generator) · Docker Compose · GitLab CI / Jenkins ·
-Kubernetes manifests
+Scala 2.12 · Spark 3.5 (sbt multi-module) · SeaweedFS (S3-compatible object storage) ·
+PostgreSQL (serving) · Dremio (bi on the lake) · Airflow · Python (synthetic data generator) ·
+Docker Compose · GitLab CI / Jenkins · Kubernetes manifests
 
 ## Quickstart
 
 Prerequisites: JDK 17, sbt, Docker, Python 3.9+
 
 ```bash
-docker compose up -d                        # s3 (seaweedfs, api :8333) + postgres
+docker compose up -d                        # s3 (seaweedfs, api :8333) + postgres (:5436) + dremio (:9047)
 pip install -r scripts/requirements.txt
 python scripts/generate_data.py --samples   # synthetic data -> data/output/ (+ data/samples/)
 python scripts/bootstrap_buckets.py         # create lake-raw / lake-curated on the s3 store
@@ -65,9 +67,10 @@ One-command end-to-end run for today's date (ingest → curate → features → 
 ```
 
 What it does: uploads the feeds to the raw inbox on the s3 store, assembles the three job jars, and
-submits the five jobs with spark-submit in the official `apache/spark` container on the compose
+submits the six jobs with spark-submit in the official `apache/spark` container on the compose
 network, landing parquet partitions in `lake-raw/raw/` and `lake-curated/` plus the DQ report.
-S3 master UI: http://localhost:9333 · Airflow UI http://localhost:8080 (phase 4).
+S3 master UI: http://localhost:9333 · Dremio: http://localhost:9047 · Airflow UI
+http://localhost:8080 (phase 4).
 
 ## Project layout
 
@@ -88,8 +91,8 @@ docs/                architecture (sequence diagrams), data model, migration gui
 - [x] phase 0 — skeleton, local storage stack, synthetic data generator
 - [x] phase 1 — raw-layer ingestion with Spark
 - [x] phase 2 — curated transformations, features, detection rules, DQ checks, pseudonymization
-- [ ] phase 3 — unit tests + CI (GitLab CI, Jenkinsfile)
-- [ ] phase 4 — Airflow orchestration, Oozie-to-Airflow migration study
+- [x] phase 3 — unit tests (19 green), legacy baseline + reconciliation job, GitLab CI + Jenkinsfile
+- [x] phase 4 — Airflow orchestration (eod chain + reconciliation dags), Oozie-to-Airflow migration study
 - [ ] phase 5 — Kubernetes manifests, runbook
 
 ## License

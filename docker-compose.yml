@@ -13,7 +13,9 @@ services:
   postgres:
     image: postgres:16
     ports:
-      - "5432:5432"
+      # host 5436: 5432 = windows postgres service, 5433 = rag-advisor stack,
+      # 5434 = smart-delivery-ops, 5435 = madrid-demo - one distinct port per project
+      - "5436:5432"
     environment:
       POSTGRES_USER: datahub
       POSTGRES_PASSWORD: datahub
@@ -21,6 +23,16 @@ services:
     volumes:
       - pg-data:/var/lib/postgresql/data
 
+  dremio:
+    image: dremio/dremio-oss:latest
+    container_name: banking-datahub-dremio
+    ports:
+      - "9047:9047"   # dremio ui
+      - "2181:2181"   # zookeeper (dremio coordinator)
+    volumes:
+      - dremio-data:/opt/dremio/data
+
 volumes:
   weed-data:
   pg-data:
+  dremio-data:

@@ -75,6 +75,14 @@ flowchart LR
 | curated | `business_date` | dynamic overwrite per date | validated, deduplicated, enriched |
 | serving | `business_date` | overwrite per date | aggregates and alert tables |
 
+## Dremio: bi queries straight on the lake
+
+The curated layer lives as parquet on object storage. Dremio reads it **in place** -
+no data copy, no ingestion step: connect the s3 source, define virtual views over the
+curated folders, and business users get sql on the lake. This is the "dremio on the
+lake" serving pattern - the bi tool queries the lake directly, while the postgres
+serving layer keeps a small row-level copy for the fastest dashboards.
+
 ## Design notes
 
 - **Parquet past ingestion** — columnar, compressed, schema embedded, predicate pushdown.
