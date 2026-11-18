@@ -3,9 +3,10 @@ set -euo pipefail
 
 # End-to-end local run:
 # generate synthetic data -> create buckets -> upload feeds to the inbox ->
-# build the three job jars -> submit the five jobs in order:
+# build the three job jars -> submit the six jobs in order:
 #   ingest (backlog: all dates) -> curate (all dates) ->
 #   features -> detect -> data quality (for the requested date)
+#   -> publish to the postgres serving layer (after the dq gate)
 #
 # Spark jobs run as one-off containers on the compose network (apache/spark image,
 # local[*] mode); the same jars go to a cluster unchanged.
@@ -58,7 +59,11 @@ submit io.github.siwarattia.datahub.transform.DetectionJob \
 submit io.github.siwarattia.datahub.quality.DataQualityJob \
   modules/quality/target/scala-2.12/datahub-quality-assembly-0.1.0.jar "$DATE"
 
+submit io.github.siwarattia.datahub.transform.ServingJob \
+  modules/transform/target/scala-2.12/datahub-transform-assembly-0.1.0.jar "$DATE"
+
 echo "pipeline done for $DATE"
 echo "  lake-raw/raw/    -> landed feeds (parquet)"
 echo "  lake-curated/    -> transactions, rejects, accounts, clients, features, alerts, risk_ratings"
 echo "  reports/dq       -> the go/no-go data-quality report (check the verdict)"
+echo "  serving (psql)   -> daily_volumes, aml_alerts (postgres :5436, schema serving)"
