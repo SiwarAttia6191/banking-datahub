@@ -26,6 +26,9 @@ logs/
 # env & secrets
 .env
 
+# local-only notes (the onboarding guide lives here; never pushed)
+docs-local/
+
 # os
 .DS_Store
 Thumbs.db

@@ -44,9 +44,18 @@ object CuratedTransactionsJob {
     val transactions = spark.read.parquet(
       if (date == "all") S3Locations.rawDomain(config, "transactions")
       else S3Locations.rawPartition(config, "transactions", date))
-    val accounts = spark.read.parquet(S3Locations.rawDomain(config, "accounts"))
-    val clients = spark.read.parquet(S3Locations.rawDomain(config, "clients"))
-    val restricted = spark.read.parquet(S3Locations.rawDomain(config, "restricted_countries"))
+    // reference feeds carry no business date, so every upload lands in its own
+    // ingestion_date partition and the raw zone accumulates them - the latest
+    // version per business key wins, the same contract as the transactional dedup
+    val accounts = latestByKey(
+      spark.read.parquet(S3Locations.rawDomain(config, "accounts")), "account_id")
+    val clients = latestByKey(
+      spark.read.parquet(S3Locations.rawDomain(config, "clients")), "client_id")
+    // one list entry per (country, list): the same country can legitimately sit on
+    // two lists, so the key is the pair
+    val restricted = latestByKey(
+      spark.read.parquet(S3Locations.rawDomain(config, "restricted_countries")),
+      "country_code", "list_source")
     // all fx partitions: the day's rates first, then the latest available rate per
     // currency as the documented fallback
     val allRates = spark.read.parquet(S3Locations.rawDomain(config, "fx_rates"))
@@ -156,4 +165,17 @@ object CuratedTransactionsJob {
 
     (curated, rejectsOut)
   }
+
+  /** Reference-feed dedup: keep the latest upload's version per business key.
+    * Without it, a second upload fans out every join built on the dimension -
+    * exactly what the dq reconciliation caught on the 2026-11-19 re-ingest.
+    * Orders on the ingestion_date partition column (iso strings sort chronologically);
+    * extra keys (e.g. the list source) sharpen the business key where one row per
+    * single key would be wrong.
+    */
+  private def latestByKey(df: DataFrame, keys: String*): DataFrame =
+    df.withColumn("rn", row_number().over(Window.partitionBy(keys.map(col): _*)
+      .orderBy(col("ingestion_date").desc)))
+      .filter(col("rn") === 1)
+      .drop("rn")
 }
