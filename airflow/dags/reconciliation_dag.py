@@ -15,8 +15,11 @@ import airflow  # noqa: F401
 from airflow.decorators import dag, task
 from airflow.exceptions import AirflowFailException
 
+import os
+
 NETWORK = "banking-datahub_default"
 SPARK_IMAGE = "apache/spark:3.5.3"
+HOST_PROJECT = os.environ.get("HOST_PROJECT_DIR", "/project")
 BASELINE_JAR = "modules/baseline/target/scala-2.12/datahub-baseline-assembly-0.1.0.jar"
 BASELINE_CLASS = "io.github.siwarattia.datahub.baseline"
 
@@ -48,7 +51,7 @@ def reconciliation_chain():
         import subprocess
         subprocess.run(
             ["docker", "run", "--rm", "--network", NETWORK,
-             "-v", "/project:/project", "-w", "/project",
+             "-v", HOST_PROJECT + ":/project", "-w", "/project",
              "-e", "S3A_ENDPOINT=http://s3:8333",
              SPARK_IMAGE, "/opt/spark/bin/spark-submit",
              "--master", "local[*]", "--class", f"{BASELINE_CLASS}.BaselineJob",
@@ -60,7 +63,7 @@ def reconciliation_chain():
         import subprocess
         subprocess.run(
             ["docker", "run", "--rm", "--network", NETWORK,
-             "-v", "/project:/project", "-w", "/project",
+             "-v", HOST_PROJECT + ":/project", "-w", "/project",
              "-e", "S3A_ENDPOINT=http://s3:8333",
              SPARK_IMAGE, "/opt/spark/bin/spark-submit",
              "--master", "local[*]", "--class", f"{BASELINE_CLASS}.ReconciliationJob",

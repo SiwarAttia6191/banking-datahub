@@ -41,6 +41,7 @@ data contracts: [docs/datamodel.md](docs/datamodel.md)
 | CI: GitLab CI + Jenkinsfile | `.gitlab-ci.yml`, `Jenkinsfile` |
 | Dremio: bi queries straight on the lake (no data copy) | dremio service + `docs/dremio.md` |
 | kibana ops dashboard over the serving layer (alert indexing + data views) | `scripts/publish_to_es.py`, `docs/ops-dashboard.md` |
+| column-level data dictionary for every table + the day-to-day runbook | `docs/data-dictionary.md`, `docs/runbook.md` |
 | alert → case handoff with lifecycle + audit trail (appian-style) | `scripts/alert_cases.py`, `docs/case-handoff.md` |
 | data assistant: grounded, guarded answers over the serving tables | `scripts/data_assistant.py`, `docs/data-assistant.md` |
 | Spark on Kubernetes manifests | `k8s/` |
@@ -90,7 +91,8 @@ migration/           legacy Oozie/Hive artifacts + the migration track
 airflow/             DAGs                        (phase 4)
 k8s/                 Spark-on-K8s manifests      (stretch)
 scripts/             data generator, inbox upload, bucket bootstrap, serving/dashboard/case tools
-docs/                architecture (sequence diagrams), data model, migration guide,
+docs/                architecture (sequence diagrams), data dictionary, runbook,
+                     data model, migration guide,
                      dremio, ops dashboard, case handoff, data assistant
 ```
 

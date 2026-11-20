@@ -1,25 +1,43 @@
 # Airflow services for the banking-datahub demo: one container, standalone mode
 # (sqlite metadata, local executor - the laptop pattern). Dags and logs are mounted
 # from the repo; the docker socket lets the dag tasks submit spark containers.
+# Paths are relative to THIS file's directory (docker/), hence the ../ prefixes.
+# Start it with the repo's host path exported (the dag tasks bind-mount the repo):
+#   HOST_PROJECT_DIR="$(pwd -W)" docker compose -f docker/airflow-compose.yml up -d
+# ui: http://localhost:8080 - user admin, password in `docker logs banking-datahub-airflow`
 
 services:
   airflow:
     build:
-      context: .
+      context: ..
       dockerfile: docker/airflow.Dockerfile
     container_name: banking-datahub-airflow
     command: standalone
     ports:
       - "8080:8080"
     environment:
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      # sequential executor: serial tasks over the standalone sqlite metadata db -
+      # air refusal is a feature here (airflow forbids LocalExecutor + sqlite)
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      # the host path of this repo: the dag tasks bind-mount it into the spark
+      # containers (docker bind mounts resolve on the host, not in this container)
+      HOST_PROJECT_DIR: ${HOST_PROJECT_DIR:-/project}
     volumes:
-      - ./airflow/dags:/opt/airflow/dags
-      - ./airflow/logs:/opt/airflow/logs
-      - .:/project
+      - ../airflow/dags:/opt/airflow/dags
+      - ../airflow/logs:/opt/airflow/logs
+      - ..:/project
       - /var/run/docker.sock:/var/run/docker.sock
     user: "${AIRFLOW_UID:-50000}:0"
     group_add:
       - "${DOCKER_GID:-999}"
+    networks:
+      - default
+      - datahub
+
+# join the datahub network so the dag tasks resolve `s3` by name
+networks:
+  datahub:
+    external: true
+    name: banking-datahub_default

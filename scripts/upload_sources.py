@@ -42,6 +42,27 @@ def main() -> None:
         region_name="us-east-1",
     )
 
+    # the inbox is a landing BUFFER, not an archive: clear the date-partitioned feed
+    # prefixes before uploading, so stale folders from an older schema/window can
+    # never be ingested (the raw zone is the archive; the inbox holds the current feed)
+    for feed in ("transactions", "fx_rates"):
+        prefix = f"inbox/{feed}/"
+        keys = []
+        token = None
+        while True:
+            kw = dict(Bucket=BUCKET, Prefix=prefix)
+            if token:
+                kw["ContinuationToken"] = token
+            page = s3.list_objects_v2(**kw)
+            keys += [o["Key"] for o in page.get("Contents", [])]
+            if not page.get("IsTruncated"):
+                break
+            token = page.get("NextContinuationToken")
+        for i in range(0, len(keys), 1000):
+            s3.delete_objects(Bucket=BUCKET,
+                              Delete={"Objects": [{"Key": k} for k in keys[i:i + 1000]]})
+        print(f"cleared inbox prefix {feed}/ ({len(keys)} old keys)")
+
     count = 0
     for path in sorted(SOURCE_ROOT.rglob("*.csv")):
         key = f"inbox/{path.relative_to(SOURCE_ROOT).as_posix()}"

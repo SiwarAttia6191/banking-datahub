@@ -89,7 +89,7 @@ object CuratedTransactionsJob {
       .write.mode("overwrite").parquet(S3Locations.curatedDomain(config, "clients"))
 
     restricted
-      .select(col("country_code"), col("list_source"),
+      .select(col("country_code"), col("country_name"), col("list_source"),
         to_date(col("effective_date"), "yyyy-MM-dd").as("effective_date"))
       .write.mode("overwrite").parquet(S3Locations.curatedDomain(config, "restricted_countries"))
 
@@ -156,7 +156,8 @@ object CuratedTransactionsJob {
         col("amount_num").as("amount"), col("currency"), col("amount_eur"),
         col("fx_fallback_used"), col("rate_applied"),
         col("channel"), col("counterparty_name"), col("counterparty_bic"),
-        col("counterparty_country"), col("value_date_typed").as("business_date"))
+        col("counterparty_country"), col("counterparty_country_name"),
+        col("value_date_typed").as("business_date"))
 
     val rejectsOut = rejects
       .select(

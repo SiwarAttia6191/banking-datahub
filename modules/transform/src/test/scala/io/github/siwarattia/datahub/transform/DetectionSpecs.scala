@@ -75,7 +75,8 @@ class DetectionSpecs extends AnyFunSuite with BeforeAndAfterAll {
   private def restricted = {
     val s = spark
     import s.implicits._
-    Seq(("IR", "sanctions_sim"), ("SY", "sanctions_sim")).toDF("country_code", "list_source")
+    Seq(("IR", "Iran", "sanctions_sim"), ("SY", "Syria", "sanctions_sim"))
+      .toDF("country_code", "country_name", "list_source")
   }
 
   private def accounts = {
@@ -107,6 +108,8 @@ class DetectionSpecs extends AnyFunSuite with BeforeAndAfterAll {
     assert(country.head.getAs[String]("txn_id") == "T9")
     // sanctions_sim weighs more than the other lists: score 80 -> high
     assert(math.abs(country.head.getAs[Double]("score") - 80.0) < 1e-9)
+    // the readable country name travels in the alert detail
+    assert(country.head.getAs[String]("detail") == "list=sanctions_sim country=Iran")
     assert(country.head.getAs[String]("severity") == "high")
   }
 

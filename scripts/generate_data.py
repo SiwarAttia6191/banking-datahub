@@ -24,6 +24,7 @@ Standard library only. Output layout mirrors the raw lake:
 import argparse
 import csv
 import random
+import shutil
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -52,6 +53,17 @@ FATF_GREYLIST = ["IQ", "YE", "SY", "LB", "VE", "HT", "CM", "KE", "AO", "BA", "KW
 RESTRICTED = FATF_BLACKLIST + FATF_GREYLIST
 RESTRICTED_LIST_SOURCE = {**{c: "sanctions_sim" for c in FATF_BLACKLIST},
                           **{c: "fatf_grey_list" for c in FATF_GREYLIST}}
+
+# ISO-3166 alpha-2 -> readable name (feeds + dashboards show the name, not the code)
+COUNTRY_NAMES = {
+    "ES": "Spain", "FR": "France", "DE": "Germany", "IT": "Italy", "BE": "Belgium",
+    "NL": "Netherlands", "PT": "Portugal", "TN": "Tunisia", "GB": "United Kingdom",
+    "CH": "Switzerland",
+    "KP": "North Korea", "IR": "Iran", "MM": "Myanmar",
+    "IQ": "Iraq", "YE": "Yemen", "SY": "Syria", "LB": "Lebanon", "VE": "Venezuela",
+    "HT": "Haiti", "CM": "Cameroon", "KE": "Kenya", "AO": "Angola",
+    "BA": "Bosnia and Herzegovina", "KW": "Kuwait", "SS": "South Sudan",
+}
 
 SECTORS = ["Logistics", "Textiles", "Pharma", "Construction", "AgriFood",
            "Software", "Energy", "Retail", "Metalworks", "Printing"]
@@ -135,6 +147,12 @@ def main() -> None:
 
     rng = random.Random(args.seed)
     out = Path(args.out)
+    # a generated dataset is regenerated fresh: stale day-folders from an older
+    # window (different schema or date range) would otherwise ride along into
+    # the upload and poison the inbox - this exact bug landed a timestamp in
+    # value_date when the calendar rolled past an old folder
+    if out.exists():
+        shutil.rmtree(out)
 
     days = args.days
     if args.start_date:
@@ -205,11 +223,12 @@ def main() -> None:
 
     restricted = [{
         "country_code": code,
+        "country_name": COUNTRY_NAMES.get(code, code),
         "list_source": RESTRICTED_LIST_SOURCE[code],
         "effective_date": business_dates[0],
     } for code in RESTRICTED]
     write_csv(out / "restricted_countries" / "restricted_countries.csv",
-              ["country_code", "list_source", "effective_date"], restricted)
+              ["country_code", "country_name", "list_source", "effective_date"], restricted)
 
     # ---- daily data ------------------------------------------------------
     # the random pool EXCLUDES the scenario accounts: a dormant scenario account
@@ -261,6 +280,7 @@ def main() -> None:
                 "counterparty_name": company_name(rng) if rng.random() < 0.5 else person_name(rng),
                 "counterparty_bic": make_bic(counterparty_country, rng),
                 "counterparty_country": counterparty_country,
+                "counterparty_country_name": COUNTRY_NAMES.get(counterparty_country, counterparty_country),
                 "value_date": day,
                 "txn_timestamp": f"{day}T{rng.randrange(6, 23):02d}:{rng.randrange(60):02d}:{rng.randrange(60):02d}Z",
             }
@@ -285,6 +305,7 @@ def main() -> None:
                         "direction": direction, "amount": amount, "currency": "EUR",
                         "channel": channel, "counterparty_name": "Scenario Counterparty",
                         "counterparty_bic": "ESXXSCENXXX", "counterparty_country": "ES",
+                        "counterparty_country_name": "Spain",
                         "value_date": day, "txn_timestamp": ts}
 
             # structuring: three cash deposits just under the 10k reporting cap
@@ -308,7 +329,7 @@ def main() -> None:
 
         write_csv(out / "transactions" / f"business_date={day}" / "transactions.csv",
                   ["txn_id", "account_id", "direction", "amount", "currency", "channel",
-                   "counterparty_name", "counterparty_bic", "counterparty_country",
+                   "counterparty_name", "counterparty_bic", "counterparty_country", "counterparty_country_name",
                    "value_date", "txn_timestamp"], rows)
 
     print(f"generated: {len(clients)} clients, {len(accounts)} accounts, "
@@ -330,7 +351,7 @@ def main() -> None:
             txn_rows = list(csv.DictReader(f))[:6]
         write_csv(samples / "transactions.csv",
                   ["txn_id", "account_id", "direction", "amount", "currency", "channel",
-                   "counterparty_name", "counterparty_bic", "counterparty_country",
+                   "counterparty_name", "counterparty_bic", "counterparty_country", "counterparty_country_name",
                    "value_date", "txn_timestamp"], txn_rows)
         write_csv(samples / "fx_rates.csv",
                   ["rate_date", "base_ccy", "quote_ccy", "rate"], rates)

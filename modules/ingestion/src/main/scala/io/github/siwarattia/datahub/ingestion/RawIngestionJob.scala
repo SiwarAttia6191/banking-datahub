@@ -38,7 +38,7 @@ object RawIngestionJob {
     rawSchema("account_id", "client_id", "iban", "currency", "status")
 
   private val restrictedCountriesSchema =
-    rawSchema("country_code", "list_source", "effective_date")
+    rawSchema("country_code", "country_name", "list_source", "effective_date")
 
   private val fxRatesSchema =
     rawSchema("rate_date", "base_ccy", "quote_ccy", "rate")
@@ -47,6 +47,7 @@ object RawIngestionJob {
     rawSchema(
       "txn_id", "account_id", "direction", "amount", "currency", "channel",
       "counterparty_name", "counterparty_bic", "counterparty_country",
+      "counterparty_country_name",
       "value_date", "txn_timestamp"
     )
 

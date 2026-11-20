@@ -17,8 +17,14 @@ from airflow.exceptions import AirflowFailException
 from airflow.utils.trigger_rule import TriggerRule
 import datetime as dt
 
+import os
+
 NETWORK = "banking-datahub_default"
 SPARK_IMAGE = "apache/spark:3.5.3"
+# bind mounts are resolved by the docker daemon on the HOST, not inside this
+# container - so the tasks need the repo's host path (compose passes it via
+# HOST_PROJECT_DIR); /project stays the in-container working dir
+HOST_PROJECT = os.environ.get("HOST_PROJECT_DIR", "/project")
 JARS = {
     "ingestion": "modules/ingestion/target/scala-2.12/datahub-ingestion-assembly-0.1.0.jar",
     "transform": "modules/transform/target/scala-2.12/datahub-transform-assembly-0.1.0.jar",
@@ -83,9 +89,10 @@ def banking_eod():
     def generate_and_upload() -> str:
         """The demo feeds are synthetic: generate the day and push it to the inbox.
         In production this task is replaced by the real feed arrival (the sensor above)."""
-        import subprocess
+        import subprocess, os
+        env = {**os.environ, "S3_ENDPOINT": "http://s3:8333"}
         for cmd in ["python scripts/generate_data.py", "python scripts/upload_sources.py"]:
-            subprocess.run(cmd.split(), check=True, cwd="/project")
+            subprocess.run(cmd.split(), check=True, cwd="/project", env=env)
         return "feeds generated and uploaded"
 
     @task(retries=1)
@@ -93,7 +100,7 @@ def banking_eod():
         import subprocess
         subprocess.run(
             ["docker", "run", "--rm", "--network", NETWORK,
-             "-v", "/project:/project", "-w", "/project",
+             "-v", HOST_PROJECT + ":/project", "-w", "/project",
              "-e", "S3A_ENDPOINT=http://s3:8333",
              SPARK_IMAGE, "/opt/spark/bin/spark-submit",
              "--master", "local[*]", "--class", CLASSES["ingestion"],
@@ -105,7 +112,7 @@ def banking_eod():
         import subprocess
         subprocess.run(
             ["docker", "run", "--rm", "--network", NETWORK,
-             "-v", "/project:/project", "-w", "/project",
+             "-v", HOST_PROJECT + ":/project", "-w", "/project",
              "-e", "S3A_ENDPOINT=http://s3:8333",
              SPARK_IMAGE, "/opt/spark/bin/spark-submit",
              "--master", "local[*]", "--class", CLASSES["curate"],
@@ -117,7 +124,7 @@ def banking_eod():
         import subprocess
         subprocess.run(
             ["docker", "run", "--rm", "--network", NETWORK,
-             "-v", "/project:/project", "-w", "/project",
+             "-v", HOST_PROJECT + ":/project", "-w", "/project",
              "-e", "S3A_ENDPOINT=http://s3:8333",
              SPARK_IMAGE, "/opt/spark/bin/spark-submit",
              "--master", "local[*]", "--class", CLASSES["features"],
@@ -129,7 +136,7 @@ def banking_eod():
         import subprocess
         subprocess.run(
             ["docker", "run", "--rm", "--network", NETWORK,
-             "-v", "/project:/project", "-w", "/project",
+             "-v", HOST_PROJECT + ":/project", "-w", "/project",
              "-e", "S3A_ENDPOINT=http://s3:8333",
              SPARK_IMAGE, "/opt/spark/bin/spark-submit",
              "--master", "local[*]", "--class", CLASSES["detect"],
@@ -141,7 +148,7 @@ def banking_eod():
         import subprocess
         subprocess.run(
             ["docker", "run", "--rm", "--network", NETWORK,
-             "-v", "/project:/project", "-w", "/project",
+             "-v", HOST_PROJECT + ":/project", "-w", "/project",
              "-e", "S3A_ENDPOINT=http://s3:8333",
              SPARK_IMAGE, "/opt/spark/bin/spark-submit",
              "--master", "local[*]", "--class", CLASSES["dq"],
@@ -173,7 +180,7 @@ def banking_eod():
         import subprocess
         subprocess.run(
             ["docker", "run", "--rm", "--network", NETWORK,
-             "-v", "/project:/project", "-w", "/project",
+             "-v", HOST_PROJECT + ":/project", "-w", "/project",
              "-e", "S3A_ENDPOINT=http://s3:8333",
              SPARK_IMAGE, "/opt/spark/bin/spark-submit",
              "--master", "local[*]", "--class", CLASSES["publish"],
@@ -181,15 +188,18 @@ def banking_eod():
             check=True, cwd="/project")
         return f"serving published for {ds}"
 
-
-        feeds = wait_for_feeds()
+    # the tasks take NO arguments: `ds` (the logical date) is injected by airflow's
+    # context - passing upstream values positionally into a reserved context key
+    # is rejected by the taskflow api. dependencies are expressed with >> only.
+    feeds = wait_for_feeds()
     uploaded = generate_and_upload()
-    ingested = ingest(feeds)
-    curated = curate(ingested)
-    featured = features(curated)
-    detected = detect(featured)
-    dq = data_quality(detected)
-    publish(dq)
+    ingested = ingest()
+    curated = curate()
+    featured = features()
+    detected = detect()
+    dq = data_quality()
+    published = publish()
+    feeds >> uploaded >> ingested >> curated >> featured >> detected >> dq >> published
 
 
 banking_eod()

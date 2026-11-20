@@ -13,9 +13,10 @@ Oozie-to-Airflow mapping in `docs/migration-guide.md` (step 4 of the migration g
 ## Run it
 
 ```bash
-docker compose -f docker/airflow-compose.yml build airflow
-docker compose -f docker/airflow-compose.yml up airflow
-# ui: http://localhost:8080 (admin / admin - standalone generates them on startup)
+HOST_PROJECT_DIR="$(pwd -W)" docker compose -f docker/airflow-compose.yml up -d --build airflow
+# ui: http://localhost:8080 - user admin, password in the startup logs:
+#   docker logs banking-datahub-airflow 2>&1 | grep -i password
+# (standalone mode: sqlite metadata + sequential executor - serial tasks, laptop pattern)
 ```
 
 The dag tasks submit the spark jobs as one-off containers on the compose network -

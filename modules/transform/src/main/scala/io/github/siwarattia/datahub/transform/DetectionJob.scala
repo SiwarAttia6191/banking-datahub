@@ -57,7 +57,7 @@ object DetectionJob {
     val txns = spark.read.parquet(S3Locations.curatedDomain(config, "transactions"))
       .filter(col("business_date") === lit(date).cast("date"))
     val restrictedCodes = spark.read.parquet(S3Locations.curatedDomain(config, "restricted_countries"))
-      .select(col("country_code"), col("list_source"))
+      .select(col("country_code"), col("country_name"), col("list_source"))
     val accounts = spark.read.parquet(S3Locations.curatedDomain(config, "accounts"))
       .select(col("account_id"), col("client_id"))
     val clients = spark.read.parquet(S3Locations.curatedDomain(config, "clients"))
@@ -112,7 +112,8 @@ object DetectionJob {
         lit("RULE_RESTRICTED_COUNTRY").as("rule_id"),
         col("business_date"), col("account_id"), col("txn_id"),
         col("amount_eur"),
-        concat(lit("list="), col("list_source")).as("detail"),
+        concat(lit("list="), col("list_source"), lit(" country="),
+          col("country_name")).as("detail"),
         when(col("list_source") === "sanctions_sim", lit(80.0)).otherwise(lit(65.0)).as("score"))
 
     // several cash deposits just under the reporting threshold, same account, same day:

@@ -38,26 +38,26 @@ class TransformSpecs extends AnyFunSuite with BeforeAndAfterAll {
     import s.implicits._
     Seq(
       // valid eur row with its own day rate
-      ("T1", "A1", "out", "100.0", "EUR", "sepa", "Acme SARL", "ZZZZFR10", "FR",
+      ("T1", "A1", "out", "100.0", "EUR", "sepa", "Acme SARL", "ZZZZFR10", "FR", "France",
         "2026-11-17", "2026-11-17T10:00:00Z"),
       // duplicate business key: the later timestamp (amount 55) must win
-      ("T2", "A1", "out", "50.0", "USD", "swift", "Foo LLC", "ZZZZUS20", "US",
+      ("T2", "A1", "out", "50.0", "USD", "swift", "Foo LLC", "ZZZZUS20", "US", "US",
         "2026-11-17", "2026-11-17T11:00:00Z"),
-      ("T2", "A1", "out", "55.0", "USD", "swift", "Foo LLC", "ZZZZUS20", "US",
+      ("T2", "A1", "out", "55.0", "USD", "swift", "Foo LLC", "ZZZZUS20", "US", "US",
         "2026-11-17", "2026-11-17T12:00:00Z"),
       // dirty rows, one reject reason each
-      ("T3", "A1", "out", "-10.0", "EUR", "domestic", "Bad", "ZZZZFR10", "FR",
+      ("T3", "A1", "out", "-10.0", "EUR", "domestic", "Bad", "ZZZZFR10", "FR", "France",
         "2026-11-17", "2026-11-17T13:00:00Z"),
-      ("T4", "A1", "out", "20.0", "XX", "swift", "Odd", "ZZZZXX00", "XX",
+      ("T4", "A1", "out", "20.0", "XX", "swift", "Odd", "ZZZZXX00", "XX", "XX",
         "2026-11-17", "2026-11-17T14:00:00Z"),
-      ("T5", "GHOST", "out", "30.0", "EUR", "domestic", "Ghost", "ZZZZFR10", "FR",
+      ("T5", "GHOST", "out", "30.0", "EUR", "domestic", "Ghost", "ZZZZFR10", "FR", "France",
         "2026-11-17", "2026-11-17T15:00:00Z"),
       // usd row on a date with no rate of its own -> fallback (latest available: 1.1)
-      ("T6", "A1", "out", "80.0", "USD", "swift", "Fallback", "ZZZZUS20", "US",
+      ("T6", "A1", "out", "80.0", "USD", "swift", "Fallback", "ZZZZUS20", "US", "US",
         "2026-11-16", "2026-11-16T09:00:00Z")
     ).toDF("txn_id", "account_id", "direction", "amount", "currency", "channel",
       "counterparty_name", "counterparty_bic", "counterparty_country",
-      "value_date", "txn_timestamp")
+      "counterparty_country_name", "value_date", "txn_timestamp")
   }
 
   private def rates = {
