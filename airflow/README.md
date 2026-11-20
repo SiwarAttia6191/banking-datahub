@@ -16,7 +16,9 @@ Oozie-to-Airflow mapping in `docs/migration-guide.md` (step 4 of the migration g
 HOST_PROJECT_DIR="$(pwd -W)" docker compose -f docker/airflow-compose.yml up -d --build airflow
 # ui: http://localhost:8080 - admin / AIRFLOW_ADMIN_PASSWORD (from the gitignored .env)
 # (the container pins the admin password to that value on every start)
-# (standalone mode: sqlite metadata + sequential executor - serial tasks, laptop pattern)
+# (standalone-mode services over POSTGRES metadata (airflow_metadata db) + LocalExecutor:
+#  the production-shaped config - sequential+sqlite is demo-only and banners a ui warning;
+#  the next step up would be KubernetesExecutor, one pod per task, on a cluster)
 ```
 
 The dag tasks submit the spark jobs as one-off containers on the compose network -

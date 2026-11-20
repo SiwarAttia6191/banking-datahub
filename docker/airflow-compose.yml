@@ -31,9 +31,10 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # sequential executor: serial tasks over the standalone sqlite metadata db -
-      # air refusal is a feature here (airflow forbids LocalExecutor + sqlite)
-      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      # local executor + postgres metadata: the production-shaped configuration
+      # (sequential+sqlite is demo-only - airflow banners it in the ui)
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://datahub:${POSTGRES_PASSWORD:-datahub}@postgres:5432/airflow_metadata
       # rest api accepts basic auth as well as the browser session
       AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"

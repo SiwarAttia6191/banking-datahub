@@ -66,6 +66,14 @@ UI (play button → trigger) and watch the grid view turn green task by task; ev
 task's log is one click away. This is the same chain as Way A plus the enforcement:
 the gate that "Way A" only prints is here a real barrier.
 
+The executor is LocalExecutor over a postgres metadata db (`airflow_metadata` in the
+serving container) - the production-shaped configuration; airflow banners the demo
+default (SequentialExecutor + sqlite) in the ui, and the ladder above it is
+CeleryExecutor (worker nodes over a broker) then KubernetesExecutor (one pod per task,
+elastic - the natural fit once the spark jobs move to the k8s manifests). The compute
+sits outside airflow either way: the executor only orchestrates, spark runs in
+one-off containers.
+
 Why both ways exist: Way A is what you use to debug (verbose, immediate); Way B is
 what production looks like (scheduled, gated, retried, auditable).
 
