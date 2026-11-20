@@ -9,7 +9,15 @@ final case class RulesConfig(
     maxRejectRate: Double,
     baselineWindowDays: Int,
     baselineOffsetDays: Int,
-    minVectorLength: Int
+    minVectorLength: Int,
+    // typology rules - thresholds documented against public sources in
+    // docs/detection-rules.md
+    structuringFloorEur: Double,
+    structuringCeilingEur: Double,
+    structuringMinCount: Int,
+    rapidMovementMinEur: Double,
+    dormantIdleDays: Int,
+    dormantMinEur: Double
 )
 
 final case class S3Config(
@@ -52,7 +60,13 @@ object PipelineConfig {
         maxRejectRate = rules.getDouble("max-reject-rate"),
         baselineWindowDays = rules.getInt("baseline-window-days"),
         baselineOffsetDays = rules.getInt("baseline-offset-days"),
-        minVectorLength = rules.getInt("min-vector-length")
+        minVectorLength = rules.getInt("min-vector-length"),
+        structuringFloorEur = rules.getDouble("structuring-floor-eur"),
+        structuringCeilingEur = rules.getDouble("structuring-ceiling-eur"),
+        structuringMinCount = rules.getInt("structuring-min-count"),
+        rapidMovementMinEur = rules.getDouble("rapid-movement-min-eur"),
+        dormantIdleDays = rules.getInt("dormant-idle-days"),
+        dormantMinEur = rules.getDouble("dormant-min-eur")
       ),
       serving = ServingConfig(
         url = serving.getString("url"),

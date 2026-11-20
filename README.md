@@ -31,7 +31,7 @@ data contracts: [docs/datamodel.md](docs/datamodel.md)
 |---|---|
 | raw-layer ingestion (csv → parquet, date-partitioned) | `modules/ingestion` |
 | curated transformations: validation, dedup, FX conversion | `modules/transform` |
-| behavioral features (rolling windows, z-scores) + rule-based detection with alerts | `modules/transform` |
+| behavioral features (rolling windows, z-scores) + 5 detection rules grounded in public typologies (FATF, FinCEN, EU AMLD) | `modules/transform`, `docs/detection-rules.md` |
 | data-quality framework with per-run reports, fail vs rejects routing | `modules/quality` |
 | pseudonymization of client identity in the serving zone | `modules/transform` |
 | orchestration: TaskFlow DAGs, deferrable file sensor | `airflow/dags` |

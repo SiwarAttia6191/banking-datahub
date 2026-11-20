@@ -126,7 +126,14 @@ class TransformSpecs extends AnyFunSuite with BeforeAndAfterAll {
     maxRejectRate = 0.05,
     baselineWindowDays = 31,
     baselineOffsetDays = 1,
-    minVectorLength = 2)
+    minVectorLength = 2,
+    // typology-rule knobs: not exercised by these fixtures, defaults kept
+    structuringFloorEur = 9000.0,
+    structuringCeilingEur = 10000.0,
+    structuringMinCount = 2,
+    rapidMovementMinEur = 10000.0,
+    dormantIdleDays = 30,
+    dormantMinEur = 1000.0)
 
   private def curatedLike(rows: Seq[(String, String, String, Double)]) = {
     val s = spark

@@ -43,7 +43,15 @@ FX_BASE_RATES = {  # quote units per 1 EUR, rough 2026-ish values
 }
 FX_CURRENCIES = ["USD", "GBP", "CHF", "TND", "SEK", "JPY"]
 
-RESTRICTED = ["AF", "BY", "IR", "KP", "MM", "SD", "SY", "VE"]
+# Restricted jurisdictions, grounded in the PUBLIC FATF snapshot (retrieved 2026-11-19,
+# statement dated 30 Oct 2026 - https://www.fatf-gafi.org/en/countries/black-and-grey-lists.html):
+# blacklist ("call for action") -> sanctions_sim, grey list ("increased monitoring")
+# -> fatf_grey_list. Simulated screening: the lists evolve three times a year.
+FATF_BLACKLIST = ["KP", "IR", "MM"]
+FATF_GREYLIST = ["IQ", "YE", "SY", "LB", "VE", "HT", "CM", "KE", "AO", "BA", "KW", "SS"]
+RESTRICTED = FATF_BLACKLIST + FATF_GREYLIST
+RESTRICTED_LIST_SOURCE = {**{c: "sanctions_sim" for c in FATF_BLACKLIST},
+                          **{c: "fatf_grey_list" for c in FATF_GREYLIST}}
 
 SECTORS = ["Logistics", "Textiles", "Pharma", "Construction", "AgriFood",
            "Software", "Energy", "Retail", "Metalworks", "Printing"]
@@ -167,12 +175,29 @@ def main() -> None:
             })
     # guarantee the demo has at least one invalid iban: the iban_valid flag and the
     # quarantine check need a real case to catch
+    # three scenario accounts drive the typology rules with injected red-team
+    # patterns (how banks validate their own rule book): structuring, rapid
+    # movement (pass-through) and a dormant reactivation - all deterministic,
+    # all on the last day. They stay OUT of the random daily pool, so they must
+    # not be picked for the iban corruption either.
+    home = next(c for c in clients if c["country"] in EUR_COUNTRIES)
+    scenario_accounts = [
+        {"account_id": "ACCTSC00001", "client_id": home["client_id"], "iban": make_iban("ES", rng),
+         "currency": "EUR", "status": "active"},
+        {"account_id": "ACCTRM00001", "client_id": home["client_id"], "iban": make_iban("ES", rng),
+         "currency": "EUR", "status": "active"},
+        {"account_id": "ACCTSL00001", "client_id": home["client_id"], "iban": make_iban("ES", rng),
+         "currency": "EUR", "status": "active"},
+    ]
+    accounts.extend(scenario_accounts)
+    scenario_ids = {a["account_id"] for a in scenario_accounts}
+
     def iban_is_invalid(a):
         ib = a["iban"]
         return iban_check_digits(ib[:2], ib[4:]) != ib[2:4]
 
-    if not any(iban_is_invalid(a) for a in accounts):
-        victim = rng.choice(accounts)
+    if not any(iban_is_invalid(a) for a in accounts if a["account_id"] not in scenario_ids):
+        victim = rng.choice([a for a in accounts if a["account_id"] not in scenario_ids])
         victim["iban"] = break_iban(victim["iban"], rng)
 
     write_csv(out / "accounts" / "accounts.csv",
@@ -180,14 +205,17 @@ def main() -> None:
 
     restricted = [{
         "country_code": code,
-        "list_source": "sanctions_sim" if i % 2 == 0 else "internal_watchlist",
+        "list_source": RESTRICTED_LIST_SOURCE[code],
         "effective_date": business_dates[0],
-    } for i, code in enumerate(RESTRICTED)]
+    } for code in RESTRICTED]
     write_csv(out / "restricted_countries" / "restricted_countries.csv",
               ["country_code", "list_source", "effective_date"], restricted)
 
     # ---- daily data ------------------------------------------------------
-    account_ids = [a["account_id"] for a in accounts]
+    # the random pool EXCLUDES the scenario accounts: a dormant scenario account
+    # must have zero history before its injected day, or the typology is theatre
+    active_accounts = [a for a in accounts if a["account_id"] not in scenario_ids]
+    account_ids = [a["account_id"] for a in active_accounts]
     total_txns = 0
     dirty_count = 0
     duplicates = 0
@@ -203,7 +231,7 @@ def main() -> None:
 
         rows = []
         for _ in range(int(args.txns_per_day * rng.uniform(0.8, 1.2))):
-            account = rng.choice(accounts)
+            account = rng.choice(active_accounts)
             home = account["iban"][:2]
             others = [c for c in IBAN_LENGTHS if c != home]
             options = [home] + others + RESTRICTED
@@ -216,11 +244,17 @@ def main() -> None:
                 channel = "sepa"
             else:
                 channel = "swift"
+            direction = rng.choice(["in", "out"])
+            # a share of inbound credits arrive as branch/atm cash deposits - the
+            # channel the structuring rule screens (cash has no counterparty country)
+            if direction == "in" and rng.random() < 0.04:
+                channel = "cash"
+                counterparty_country = account["iban"][:2]
 
             row = {
                 "txn_id": f"TXN{rng.randrange(10_000_000):08d}",
                 "account_id": account["account_id"],
-                "direction": rng.choice(["in", "out"]),
+                "direction": direction,
                 "amount": round(rng.lognormvariate(3.0, 1.0) * 20, 2),
                 "currency": account["currency"],
                 "channel": channel,
@@ -243,6 +277,31 @@ def main() -> None:
 
             rows.append(row)
             total_txns += 1
+
+        # ---- injected red-team scenarios, last day only (deterministic) ------
+        if day == business_dates[-1]:
+            def sc_row(txn_id, account_id, direction, amount, channel, ts):
+                return {"txn_id": txn_id, "account_id": account_id,
+                        "direction": direction, "amount": amount, "currency": "EUR",
+                        "channel": channel, "counterparty_name": "Scenario Counterparty",
+                        "counterparty_bic": "ESXXSCENXXX", "counterparty_country": "ES",
+                        "value_date": day, "txn_timestamp": ts}
+
+            # structuring: three cash deposits just under the 10k reporting cap
+            rows.extend([
+                sc_row("TXNSC000001", "ACCTSC00001", "in", 9300.00, "cash", f"{day}T09:15:00Z"),
+                sc_row("TXNSC000002", "ACCTSC00001", "in", 9500.00, "cash", f"{day}T11:40:00Z"),
+                sc_row("TXNSC000003", "ACCTSC00001", "in", 9800.00, "cash", f"{day}T16:05:00Z"),
+            ])
+            # rapid movement: a large amount arrives and leaves the same day
+            rows.extend([
+                sc_row("TXNRM000001", "ACCTRM00001", "in", 15000.00, "swift", f"{day}T08:30:00Z"),
+                sc_row("TXNRM000002", "ACCTRM00001", "out", 14500.00, "swift", f"{day}T18:45:00Z"),
+            ])
+            # dormant reactivation: the sleepy account transacts for the first time
+            rows.append(
+                sc_row("TXNSL000001", "ACCTSL00001", "in", 8000.00, "sepa", f"{day}T14:20:00Z"))
+            total_txns += 6
 
         rows.extend(dict(r) for r in rng.sample(rows, k=int(len(rows) * args.dup_rate)))
         duplicates += int(len(rows) * args.dup_rate)
