@@ -14,8 +14,8 @@ Oozie-to-Airflow mapping in `docs/migration-guide.md` (step 4 of the migration g
 
 ```bash
 HOST_PROJECT_DIR="$(pwd -W)" docker compose -f docker/airflow-compose.yml up -d --build airflow
-# ui: http://localhost:8080 - user admin, password in the startup logs:
-#   docker logs banking-datahub-airflow 2>&1 | grep -i password
+# ui: http://localhost:8080 - admin / AIRFLOW_ADMIN_PASSWORD (from the gitignored .env)
+# (the container pins the admin password to that value on every start)
 # (standalone mode: sqlite metadata + sequential executor - serial tasks, laptop pattern)
 ```
 

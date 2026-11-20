@@ -12,18 +12,39 @@ services:
       context: ..
       dockerfile: docker/airflow.Dockerfile
     container_name: banking-datahub-airflow
-    command: standalone
+    # standalone generates a RANDOM admin password on every recreate - the wrapper
+    # below waits for the user to exist, then pins the password to the .env value,
+    # so the ui login is deterministic
+    command: >
+      bash -c '
+        trap "kill $${STANDALONE_PID} 2>/dev/null" TERM;
+        airflow standalone &
+        STANDALONE_PID=$$!;
+        for i in $$(seq 1 120); do
+          if airflow users list 2>/dev/null | grep -qw admin; then
+            airflow users reset-password -u admin -p "$${AIRFLOW_ADMIN_PASSWORD}" >/dev/null 2>&1 && echo "admin password pinned from env" && break;
+          fi;
+          sleep 2;
+        done;
+        wait $${STANDALONE_PID}
+      '
     ports:
       - "8080:8080"
     environment:
       # sequential executor: serial tasks over the standalone sqlite metadata db -
       # air refusal is a feature here (airflow forbids LocalExecutor + sqlite)
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      # rest api accepts basic auth as well as the browser session
+      AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
       # the host path of this repo: the dag tasks bind-mount it into the spark
       # containers (docker bind mounts resolve on the host, not in this container)
       HOST_PROJECT_DIR: ${HOST_PROJECT_DIR:-/project}
+      # deterministic admin credentials: read from the gitignored .env via compose
+      # (standalone's random password makes the ui unusable day to day)
+      AIRFLOW_ADMIN_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-datahub-dev}
     volumes:
       - ../airflow/dags:/opt/airflow/dags
       - ../airflow/logs:/opt/airflow/logs

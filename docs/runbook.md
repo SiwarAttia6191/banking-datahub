@@ -22,6 +22,9 @@ curl -s "http://localhost:8080/api/v1/dags" -u admin:<password-from-logs> | head
 Then the human questions: did the dq (data-quality) verdict PASS? how many alerts
 fired? any rejects spike? - see step 3 for where each answer lives.
 
+**Every credential lives in the gitignored `.env` at the repo root** - the table in
+its header maps each tool to its url, user and password. One file, never a hunt.
+
 ## 1. Start the stack
 
 ```bash
@@ -53,8 +56,7 @@ INFO ServingJob$: [2026-11-20] serving published: 125 daily_volumes, 14 aml_aler
 
 ```bash
 HOST_PROJECT_DIR="$(pwd -W)" docker compose -f docker/airflow-compose.yml up -d
-docker logs banking-datahub-airflow 2>&1 | grep -i password   # the admin password
-# open http://localhost:8080 - log in admin / <that password>
+# open http://localhost:8080 - log in admin / AIRFLOW_ADMIN_PASSWORD (from .env)
 ```
 
 Two dags: `banking_eod` (sensor → generate → ingest → curate → features → detect →
@@ -170,6 +172,6 @@ python scripts/data_assistant.py "alerts by rule"
 ## 7. Ports and credentials
 
 One distinct port per service (s3 8333 · master ui 9333 · postgres 5436 · dremio 9047 ·
-es 9200 · kibana 5601 · airflow 8080). Credentials live in the gitignored `.env`
-(elastic/datahub-dev for kibana and es, datahub/datahub for postgres, dremio admin
-created at first run). Never commit or paste them.
+es 9200 · kibana 5601 · airflow 8080). **Credentials live in the gitignored `.env`** -
+its header table is the single reference (kibana/es, postgres, s3, dremio, airflow).
+Never commit or paste them.
