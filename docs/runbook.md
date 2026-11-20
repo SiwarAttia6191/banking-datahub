@@ -86,6 +86,65 @@ python scripts/publish_to_es.py               # idempotent: business keys are th
 python scripts/publish_to_es.py --dry-run     # counts only
 ```
 
+## 4b. The migration: the same task, before (Oozie) and after (Airflow)
+
+The daily load existed BEFORE Airflow - as an Oozie (the Hadoop-era scheduler) workflow,
+kept verbatim in `migration/legacy/` as the migration reference. Same task, two eras:
+
+| concern | BEFORE - oozie (`migration/legacy/`) | AFTER - airflow (`airflow/dags/banking_eod_dag.py`) |
+|---|---|---|
+| schedule once a day | `coordinator.xml`: `<coordinator-app frequency="${coordMinutes}">` + timezone | the `@dag(schedule="@daily")` decorator |
+| wait for the feed | `<datasets><dataset name="txn_feed">` - dataset availability gates the run | the `wait_for_feeds` task - polls the s3 inbox, fails after 10 minutes |
+| create the staging folder | `<action name="prepare-staging"><fs><mkdir .../>` | gone - object storage needs no mkdir (s3 has no real folders) |
+| run the load logic | `<action name="load-transactions"><hive><script>daily_load.hql</script><param>jobDate=${jobDate}</param>` | `ingest`/`curate` tasks: spark-submit of the ported jar, `--date` from `ds` |
+| pass the business date | EL expression `${jobDate}` filled by the coordinator | Jinja context variable `{{ ds }}` (TaskFlow injects it as the `ds` parameter) |
+| a step fails | `<error to="kill"/>` - the workflow dies, no retry | `default_args={"retries": 2}` + the dq gate raising `AirflowFailException` |
+| see what ran | oozie web ui on the hadoop cluster | the airflow ui: grid view, per-task logs, one click each |
+| prove equivalence before cutover | - | `reconciliation_chain` dag: the legacy hive logic ported to spark (`BaselineJob`) vs the new pipeline, per-partition diff, verdict gate |
+
+Where to look, in reading order:
+1. `migration/legacy/oozie/workflow.xml` + `coordinator.xml` + `job.properties` - the
+   "before", verbatim XML as it ran on Hadoop
+2. `migration/legacy/hive/daily_load.hql` - the load logic that `CuratedTransactionsJob`
+   is a line-by-line port of
+3. `airflow/dags/banking_eod_dag.py` - the "after", the same chain in python
+4. `docs/migration-guide.md` - the full study (inventory → storage move → logic port →
+   parallel run → orchestration re-platform → cutover)
+5. `docs/detection-rules.md` - what the ported pipeline now does that the legacy one didn't
+
+Why there is no oozie image or container: oozie only runs on a hadoop cluster (it needs
+hdfs, yarn and the mapreduce/hive2 services) - there is no realistic local oozie. The
+"before" is represented by its real artifacts, the "after" by code you can actually run
+and watch - which is exactly what a migration project hands you: the legacy artifacts
+plus the ported implementation, with the reconciliation verdict as the equivalence proof.
+
+## 4c. Where the daily data comes from (and what to prepare)
+
+Nothing to prepare - the hub is self-feeding:
+
+1. the scheduled dag run's logical date (`ds`) becomes the business date
+2. `generate_and_upload` regenerates the synthetic feeds (45-day window ending today)
+   and uploads them to the inbox - **in production this task disappears**: the bank's
+   source systems push the day's extracts, and the `wait_for_feeds` sensor becomes the
+   real gate
+3. `ingest` lands them in the raw zone; every later step overwrites its own
+   date partition - reruns are idempotent, so a daily rerun never duplicates anything
+
+Two modes worth knowing:
+
+- **bootstrap** (what happens today): the full 45-day backlog, so the statistical
+  baselines have history from day one
+- **incremental** (production-like): `python scripts/generate_data.py --days 1` produces
+  only the new day; the lake keeps the history, so baselines keep working. The runner
+  and the dag currently bootstrap every time (heavier but idempotent) - switching the
+  dag's generate task to `--days 1` after the first bootstrap is the documented next step
+
+What you must NOT count on: old days changing. In production, once a day is processed
+it becomes history; only its reruns (same inputs) may touch it. If you change the
+transformation code, downstream days must be reprocessed deliberately - that discipline
+is a deliberate operation - see the dq incident story in the git history
+(commits around 2026-11-19/20: the reference-feed fan-out fix).
+
 ## 5. The incident loop (when the dq gate says FAIL)
 
 1. Read the verdict json (step 3) - the failing checks say WHAT (`dedup_completeness:
