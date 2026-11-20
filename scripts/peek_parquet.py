@@ -8,6 +8,8 @@ the files, so each row shows the path's business_date separately.
 usage:
   python scripts/peek_parquet.py curated/transactions/business_date=2026-11-17 [ROWS]
   python scripts/peek_parquet.py curated/alerts/business_date=2026-11-17 [ROWS]
+  # another bucket (e.g. the raw zone): override S3_BUCKET
+  S3_BUCKET=lake-raw python scripts/peek_parquet.py raw/transactions/ingestion_date=2026-11-20 [ROWS]
 """
 
 import os

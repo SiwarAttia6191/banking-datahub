@@ -93,7 +93,8 @@ k8s/                 Spark-on-K8s manifests      (stretch)
 scripts/             data generator, inbox upload, bucket bootstrap, serving/dashboard/case tools
 docs/                architecture (sequence diagrams), data dictionary, runbook,
                      data model, migration guide,
-                     dremio, ops dashboard, case handoff, data assistant
+                     dremio, ops dashboard, case handoff, data assistant,
+                     detection rules, lake browsing
 ```
 
 ## Roadmap
