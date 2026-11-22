@@ -155,6 +155,63 @@ transformation code, downstream days must be reprocessed deliberately - that dis
 is a deliberate operation - see the dq incident story in the git history
 (commits around 2026-11-19/20: the reference-feed fan-out fix).
 
+## 4d. The kubernetes path (issues #35/#36/#37)
+
+The same pipeline, deployed as cluster pods. The cluster is **kind** (kubernetes in
+docker - free): one container running a full single-node control plane.
+
+**bring it up (once):**
+
+```bash
+kind create cluster --name banking-datahub         # or: kubectl get ns (already there?)
+docker network connect banking-datahub_default banking-datahub-control-plane
+# pods resolve s3 / postgres by name - this join is what connects the two worlds
+docker build -f k8s/spark.Dockerfile -t banking-datahub/spark:3.5.3 .
+kind load docker-image banking-datahub/spark:3.5.3 --name banking-datahub
+kubectl apply -f k8s/                              # namespace + spark rbac + smoke pod
+```
+
+**run the pipeline on pods (without airflow):** apply the six jobs ONE AT A TIME -
+six local[*] spark apps at once thrash a single node:
+
+```bash
+kubectl apply -f k8s/30-spark-jobs.yaml            # defines all six
+kubectl wait --for=condition=complete job/banking-spark-ingest -n banking-datahub --timeout=15m
+kubectl delete job banking-spark-ingest -n banking-datahub      # then the next...
+```
+
+**run it orchestrated (airflow):** trigger `banking_eod` from the ui - the spark
+tasks are KubernetesPodOperator specs: airflow creates a pod per task, streams the
+pod logs into its own task log, and deletes the pod after completion.
+
+**watch:**
+
+```bash
+kubectl get pods,jobs -n banking-datahub
+kubectl logs -n banking-datahub <pod-name>         # the output lives in the ...-driver pod
+k9s -n banking-datahub                             # the terminal dashboard: :jobs, :pods, l = logs
+```
+
+**troubleshooting - each line is a real incident from the first runs:**
+
+- `certificate verify failed: Hostname mismatch` on host.docker.internal → the
+  kubeconfig must point at a name ON the api server certificate:
+  `https://banking-datahub-control-plane:6443` (check with
+  `openssl s_client ... | openssl x509 -noout -ext subjectAltName`)
+- driver pod hung with 0% cpu, no logs, no s3 requests → silent s3a retries; take a
+  thread dump (`kill -QUIT <pid>` inside the pod) and fast-fail with
+  `fs.s3a.attempts.maximum=1` to surface the real error
+- `Connection refused` to localhost:8333 → the submitter's env does not reach the
+  driver pod: pass `--conf spark.kubernetes.driverEnv.S3A_ENDPOINT=...`
+- `No FileSystem for scheme "local"` → missing `--class` on the spark-submit
+- `Forbidden ... cannot patch resource "services"` → the rbac role needs the
+  patch/update verbs (spark patches its driver service)
+- the image must exist in the cluster: build + `kind load docker-image` after every
+  jar change, and keep `image_pull_policy: IfNotPresent`
+
+the learning doc (docs-local/learning-airflow-kubernetes.md) explains each of these
+in depth; docs/kubernetes.md carries the architecture and the yaml walkthrough.
+
 ## 5. The incident loop (when the dq gate says FAIL)
 
 1. Read the verdict json (step 3) - the failing checks say WHAT (`dedup_completeness:
