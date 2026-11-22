@@ -5,6 +5,10 @@ hive script) runs against the same inputs, the reconciliation job compares the t
 outputs per partition, and the verdict gate FAILS the dag unless the legacy output
 and the curated layer agree - strict key equivalence, the parallel-validation
 pattern from production, as a real go/no-go gate.
+
+Issue #37: both spark steps run as pods on the kind cluster (KubernetesPodOperator,
+same image and rbac as the banking_eod dag); the verdict gate is a separate task
+that reads the reconciliation report and blocks on anything but PASS.
 """
 
 from __future__ import annotations
@@ -14,22 +18,37 @@ import datetime as dt
 import airflow  # noqa: F401
 from airflow.decorators import dag, task
 from airflow.exceptions import AirflowFailException
+from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
 
-import os
+SPARK_IMAGE = "banking-datahub/spark:3.5.3"
+K8S_NAMESPACE = "banking-datahub"
 
-NETWORK = "banking-datahub_default"
-SPARK_IMAGE = "apache/spark:3.5.3"
-HOST_PROJECT = os.environ.get("HOST_PROJECT_DIR", "/project")
-BASELINE_JAR = "modules/baseline/target/scala-2.12/datahub-baseline-assembly-0.1.0.jar"
+KPO_COMMON = dict(
+    namespace=K8S_NAMESPACE,
+    image=SPARK_IMAGE,
+    image_pull_policy="IfNotPresent",
+    in_cluster=False,
+    config_file="/home/airflow/.kube/config-airflow.yaml",
+    cluster_context="kind-banking-datahub",
+    get_logs=True,
+    is_delete_operator_pod=True,
+)
+
+BASELINE_JAR = "local:///opt/spark/jobs/datahub-baseline-assembly-0.1.0.jar"
 BASELINE_CLASS = "io.github.siwarattia.datahub.baseline"
 
 
-def submit(module: str, date: str) -> str:
+def baseline_pod(task_id: str, step: str) -> KubernetesPodOperator:
     cls = {"baseline": f"{BASELINE_CLASS}.BaselineJob",
-           "reconcile": f"{BASELINE_CLASS}.ReconciliationJob"}[module]
-    return (
-        f"/opt/spark/bin/spark-submit --master local[*] --class {cls} "
-        f'/project/{BASELINE_JAR} --date {date}'
+           "reconcile": f"{BASELINE_CLASS}.ReconciliationJob"}[step]
+    return KubernetesPodOperator(
+        task_id=task_id,
+        name=f"banking-recon-{step}",
+        cmds=["/opt/spark/bin/spark-submit"],
+        arguments=["--master", "local[*]", "--class", cls, BASELINE_JAR,
+                   "--date", "{{ ds }}"],
+        env_vars={"S3A_ENDPOINT": "http://s3:8333"},
+        **KPO_COMMON,
     )
 
 
@@ -46,30 +65,10 @@ def submit(module: str, date: str) -> str:
 )
 def reconciliation_chain():
 
-    @task(retries=0)
-    def legacy_baseline(ds: str | None = None):
-        import subprocess
-        subprocess.run(
-            ["docker", "run", "--rm", "--network", NETWORK,
-             "-v", HOST_PROJECT + ":/project", "-w", "/project",
-             "-e", "S3A_ENDPOINT=http://s3:8333",
-             SPARK_IMAGE, "/opt/spark/bin/spark-submit",
-             "--master", "local[*]", "--class", f"{BASELINE_CLASS}.BaselineJob",
-             f"/project/{BASELINE_JAR}", "--date", ds],
-            check=True, cwd="/project")
-
-    @task(retries=0)
-    def reconcile(ds: str | None = None) -> str:
-        import subprocess
-        subprocess.run(
-            ["docker", "run", "--rm", "--network", NETWORK,
-             "-v", HOST_PROJECT + ":/project", "-w", "/project",
-             "-e", "S3A_ENDPOINT=http://s3:8333",
-             SPARK_IMAGE, "/opt/spark/bin/spark-submit",
-             "--master", "local[*]", "--class", f"{BASELINE_CLASS}.ReconciliationJob",
-             f"/project/{BASELINE_JAR}", "--date", ds],
-            check=True, cwd="/project")
-        # read the verdict from the report - the go/no-go gate
+    @task
+    def reconciliation_gate() -> str:
+        """The go/no-go gate: reads the newest reconciliation report and fails the
+        dag unless the legacy output and the curated layer agree."""
         import boto3, json
         from botocore.client import Config
         s3 = boto3.client("s3", endpoint_url="http://s3:8333",
@@ -87,7 +86,10 @@ def reconciliation_chain():
             raise AirflowFailException(f"reconciliation verdict {verdict} - cutover blocked")
         return f"reconciliation verdict {verdict}"
 
-    legacy_baseline() >> reconcile()
+    baseline = baseline_pod("baseline", "baseline")
+    reconcile_op = baseline_pod("reconcile", "reconcile")
+    gate = reconciliation_gate()
+    baseline >> reconcile_op >> gate
 
 
 reconciliation_chain()

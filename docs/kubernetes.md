@@ -123,6 +123,28 @@ the pattern across the ladder: **each rung removes one privileged dependency and
 adds one declarative contract** - that is what cloud-native migration means beyond
 the buzzword.
 
+## Issue #37: the airflow tasks as pods (the task-level rung)
+
+the dag's spark tasks no longer launch containers through the docker socket - each
+one is a **KubernetesPodOperator** (the cncf-kubernetes provider): airflow asks the
+cluster api to run a pod, the pod runs the same fat jar in local[*] mode, airflow
+streams the pod logs into its own task log, and the pod is deleted after completion.
+
+what the wiring needed (three knobs, each learned the hard way):
+
+- a **kubeconfig the airflow container can use**: a copy of ~/.kube/config with the
+  server rewritten to the CLUSTER-internal name (`https://banking-datahub-control-plane:6443`)
+  - that name is on the api server certificate, so tls verifies without any insecure
+  flag; the airflow container joins the `kind` docker network so the name resolves
+  (mounted read-only from outside the repo - it carries cluster credentials)
+- `image_pull_policy: IfNotPresent` - the spark image exists only inside the kind node
+- **submitter env is not pod env** (the same lesson as #36, now in operator form):
+  the pod gets its environment via `env_vars` or the pod runs with defaults - the
+  dq gate became its own task that reads the verdict report and blocks publish
+
+verified: banking_eod 9/9 tasks SUCCESS (8 pods + the gate task), pods deleted
+after completion (is_delete_operator_pod).
+
 ## Status
 
 | issue | what | state |

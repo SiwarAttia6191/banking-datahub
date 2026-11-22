@@ -42,6 +42,10 @@ services:
       # the host path of this repo: the dag tasks bind-mount it into the spark
       # containers (docker bind mounts resolve on the host, not in this container)
       HOST_PROJECT_DIR: ${HOST_PROJECT_DIR:-/project}
+      # the kubernetes pod operator talks to the kind cluster api through this
+      # kubeconfig copy (server patched to host.docker.internal - 127.0.0.1 inside
+      # the container is not the host)
+      KUBECONFIG: /home/airflow/.kube/config-airflow.yaml
       # deterministic admin credentials: read from the gitignored .env via compose
       # (standalone's random password makes the ui unusable day to day)
       AIRFLOW_ADMIN_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
@@ -51,15 +55,26 @@ services:
       - ../airflow/logs:/opt/airflow/logs
       - ..:/project
       - /var/run/docker.sock:/var/run/docker.sock
+      # the kubernetes api credentials for the pod operator: a copy of ~/.kube/config
+      # with the server url rewritten to host.docker.internal (cluster credentials -
+      # gitignored territory, never commit)
+      - C:/Users/siwar/tools/kind-kubeconfig-airflow.yaml:/home/airflow/.kube/config-airflow.yaml:ro
     user: "${AIRFLOW_UID:-50000}:0"
     group_add:
       - "${DOCKER_GID:-999}"
     networks:
       - default
       - datahub
+      - kind
 
-# join the datahub network so the dag tasks resolve `s3` by name
+# two external networks: the datahub network (pods resolve `s3`/`postgres` by name;
+# the sensor and the upload task use it) and the kind network (the pod operator
+# reaches the cluster api at https://banking-datahub-control-plane:6443 - a name
+# the api server certificate actually covers)
 networks:
   datahub:
     external: true
     name: banking-datahub_default
+  kind:
+    external: true
+    name: kind
