@@ -109,6 +109,20 @@ and kubectl logs job/... reads only the job pod - the real output lives in the
 - the airflow ui stays the orchestrator view (http://localhost:8080); kibana the
   data view; k9s the cluster view.
 
+## Why each step (the architecture and the business case)
+
+| step | architecture gain | business gain |
+|---|---|---|
+| #35 cluster + rbac | a governed scheduling surface: identities and permissions as declarative yaml | platform-team style onboarding: a namespace + least-privilege account, reviewable in git |
+| #36 jobs as pods | compute becomes cluster workloads; jars are baked into a versioned image; the cluster handles retries and rescheduling | the bank's target architecture (cloud-native spark); per-job resource limits make capacity predictable; deployment traceability via image versions |
+| #37 tasks as pods | the docker-socket dependency disappears; tasks become declarative pod specs | airflow deployments pass security review without host docker access; new jobs = manifest + provider |
+| #38 docs | the k8s path is repeatable by anyone | onboarding time drops; incidents diagnosable from the runbook |
+| #34 airflow in kubernetes (optional) | the orchestrator becomes a cluster workload: elastic, self-healing, no host bindings | the full cloud-native posture; capacity follows demand - at the cost of a helm deployment and new operational skills |
+
+the pattern across the ladder: **each rung removes one privileged dependency and
+adds one declarative contract** - that is what cloud-native migration means beyond
+the buzzword.
+
 ## Status
 
 | issue | what | state |
