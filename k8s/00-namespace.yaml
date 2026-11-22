@@ -1,0 +1,5 @@
+# the kubernetes namespace for the hub's cluster workloads (issue #35)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: banking-datahub

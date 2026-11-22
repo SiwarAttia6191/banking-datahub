@@ -1,0 +1,13 @@
+# one-shot smoke pod: proves the cluster schedules, pulls an image and runs a
+# container in this namespace. apply, watch it complete, then delete.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: smoke-test
+  namespace: banking-datahub
+spec:
+  restartPolicy: Never
+  containers:
+    - name: smoke
+      image: busybox:1.36
+      command: ["sh", "-c", "echo 'kubernetes smoke test: pod scheduled and ran' && date"]

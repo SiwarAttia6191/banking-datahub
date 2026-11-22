@@ -1,0 +1,39 @@
+# what the spark driver needs to run its executors as pods: a service account,
+# a role scoped to this namespace (no cluster-wide rights), and the binding.
+# spark native kubernetes mode: the driver pod talks to the kube api to create
+# executor pods - these permissions are exactly that contract.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark
+  namespace: banking-datahub
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-driver
+  namespace: banking-datahub
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["services", "configmaps"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-driver-binding
+  namespace: banking-datahub
+subjects:
+  - kind: ServiceAccount
+    name: spark
+    namespace: banking-datahub
+roleRef:
+  kind: Role
+  name: spark-driver
+  apiGroup: rbac.authorization.k8s.io
