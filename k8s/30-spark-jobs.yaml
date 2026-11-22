@@ -1,0 +1,242 @@
+# The six pipeline jobs, as kubernetes Jobs (issue #36): same fat jars as the
+# compose path (baked into the banking-datahub/spark image), submitted in CLUSTER
+# mode - the submitter pod asks the kube api (kubernetes.default.svc, its own
+# service-account token) to create the driver pod; the driver runs the app in
+# local[*] mode inside its own pod. Pods reach the compose stack by name (s3,
+# postgres) because the kind node container is attached to the datahub network.
+#
+# apply IN ORDER (each job depends on the previous):
+#   kubectl apply -f k8s/30-spark-jobs.yaml
+# then, per job:
+#   kubectl wait --for=condition=complete job/banking-spark-ingest -n banking-datahub --timeout=15m
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: banking-spark-ingest
+  namespace: banking-datahub
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      containers:
+        - name: submit
+          image: banking-datahub/spark:3.5.3
+          command: ["/opt/spark/bin/spark-submit"]
+          args:
+            - --master
+            - k8s://https://kubernetes.default.svc
+            - --deploy-mode
+            - cluster
+            - --conf
+            - spark.kubernetes.container.image=banking-datahub/spark:3.5.3
+            - --conf
+            - spark.kubernetes.authenticate.driver.serviceAccountName=spark
+            - --conf
+            - spark.kubernetes.namespace=banking-datahub
+            - --conf
+            - spark.kubernetes.driverEnv.S3A_ENDPOINT=http://s3:8333
+            - --conf
+            - fs.s3a.attempts.maximum=1
+            - --conf
+            - fs.s3a.retry.interval=1s
+            - --conf
+            - fs.s3a.list.version=2
+            - --class
+            - io.github.siwarattia.datahub.ingestion.RawIngestionJob
+            - local:///opt/spark/jobs/datahub-ingestion-assembly-0.1.0.jar
+            - --date
+            - all
+          env:
+            - name: S3A_ENDPOINT
+              value: http://s3:8333
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: banking-spark-curate
+  namespace: banking-datahub
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      containers:
+        - name: submit
+          image: banking-datahub/spark:3.5.3
+          command: ["/opt/spark/bin/spark-submit"]
+          args:
+            - --master
+            - k8s://https://kubernetes.default.svc
+            - --deploy-mode
+            - cluster
+            - --conf
+            - spark.kubernetes.container.image=banking-datahub/spark:3.5.3
+            - --conf
+            - spark.kubernetes.authenticate.driver.serviceAccountName=spark
+            - --conf
+            - spark.kubernetes.namespace=banking-datahub
+            - --conf
+            - spark.kubernetes.driverEnv.S3A_ENDPOINT=http://s3:8333
+            - --class
+            - io.github.siwarattia.datahub.transform.CuratedTransactionsJob
+            - local:///opt/spark/jobs/datahub-transform-assembly-0.1.0.jar
+            - --date
+            - all
+          env:
+            - name: S3A_ENDPOINT
+              value: http://s3:8333
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: banking-spark-features
+  namespace: banking-datahub
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      containers:
+        - name: submit
+          image: banking-datahub/spark:3.5.3
+          command: ["/opt/spark/bin/spark-submit"]
+          args:
+            - --master
+            - k8s://https://kubernetes.default.svc
+            - --deploy-mode
+            - cluster
+            - --conf
+            - spark.kubernetes.container.image=banking-datahub/spark:3.5.3
+            - --conf
+            - spark.kubernetes.authenticate.driver.serviceAccountName=spark
+            - --conf
+            - spark.kubernetes.namespace=banking-datahub
+            - --conf
+            - spark.kubernetes.driverEnv.S3A_ENDPOINT=http://s3:8333
+            - --class
+            - io.github.siwarattia.datahub.transform.AccountFeaturesJob
+            - local:///opt/spark/jobs/datahub-transform-assembly-0.1.0.jar
+            - --date
+            - "2026-11-20"
+          env:
+            - name: S3A_ENDPOINT
+              value: http://s3:8333
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: banking-spark-detect
+  namespace: banking-datahub
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      containers:
+        - name: submit
+          image: banking-datahub/spark:3.5.3
+          command: ["/opt/spark/bin/spark-submit"]
+          args:
+            - --master
+            - k8s://https://kubernetes.default.svc
+            - --deploy-mode
+            - cluster
+            - --conf
+            - spark.kubernetes.container.image=banking-datahub/spark:3.5.3
+            - --conf
+            - spark.kubernetes.authenticate.driver.serviceAccountName=spark
+            - --conf
+            - spark.kubernetes.namespace=banking-datahub
+            - --conf
+            - spark.kubernetes.driverEnv.S3A_ENDPOINT=http://s3:8333
+            - --class
+            - io.github.siwarattia.datahub.transform.DetectionJob
+            - local:///opt/spark/jobs/datahub-transform-assembly-0.1.0.jar
+            - --date
+            - "2026-11-20"
+          env:
+            - name: S3A_ENDPOINT
+              value: http://s3:8333
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: banking-spark-dq
+  namespace: banking-datahub
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      containers:
+        - name: submit
+          image: banking-datahub/spark:3.5.3
+          command: ["/opt/spark/bin/spark-submit"]
+          args:
+            - --master
+            - k8s://https://kubernetes.default.svc
+            - --deploy-mode
+            - cluster
+            - --conf
+            - spark.kubernetes.container.image=banking-datahub/spark:3.5.3
+            - --conf
+            - spark.kubernetes.authenticate.driver.serviceAccountName=spark
+            - --conf
+            - spark.kubernetes.namespace=banking-datahub
+            - --conf
+            - spark.kubernetes.driverEnv.S3A_ENDPOINT=http://s3:8333
+            - --class
+            - io.github.siwarattia.datahub.quality.DataQualityJob
+            - local:///opt/spark/jobs/datahub-quality-assembly-0.1.0.jar
+            - --date
+            - "2026-11-20"
+          env:
+            - name: S3A_ENDPOINT
+              value: http://s3:8333
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: banking-spark-publish
+  namespace: banking-datahub
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      containers:
+        - name: submit
+          image: banking-datahub/spark:3.5.3
+          command: ["/opt/spark/bin/spark-submit"]
+          args:
+            - --master
+            - k8s://https://kubernetes.default.svc
+            - --deploy-mode
+            - cluster
+            - --conf
+            - spark.kubernetes.container.image=banking-datahub/spark:3.5.3
+            - --conf
+            - spark.kubernetes.authenticate.driver.serviceAccountName=spark
+            - --conf
+            - spark.kubernetes.namespace=banking-datahub
+            - --conf
+            - spark.kubernetes.driverEnv.S3A_ENDPOINT=http://s3:8333
+            - --class
+            - io.github.siwarattia.datahub.transform.ServingJob
+            - --conf
+            - spark.kubernetes.driverEnv.SERVING_JDBC_URL=jdbc:postgresql://postgres:5432/datahub
+            - local:///opt/spark/jobs/datahub-transform-assembly-0.1.0.jar
+            - --date
+            - "2026-11-20"
+          env:
+            - name: S3A_ENDPOINT
+              value: http://s3:8333
+            - name: SERVING_JDBC_URL
+              value: jdbc:postgresql://postgres:5432/datahub

@@ -44,7 +44,7 @@ data contracts: [docs/datamodel.md](docs/datamodel.md)
 | column-level data dictionary for every table + the day-to-day runbook | `docs/data-dictionary.md`, `docs/runbook.md` |
 | alert → case handoff with lifecycle + audit trail (appian-style) | `scripts/alert_cases.py`, `docs/case-handoff.md` |
 | data assistant: grounded, guarded answers over the serving tables | `scripts/data_assistant.py`, `docs/data-assistant.md` |
-| Spark on Kubernetes manifests | `k8s/` |
+| Spark on Kubernetes: the six pipeline jobs as cluster pods (kind, rbac) | `k8s/`, `docs/kubernetes.md` |
 
 This table is the target state — until a phase is checked in the Roadmap, its rows describe
 what is being built, not what exists yet.
@@ -106,7 +106,9 @@ docs/                architecture (sequence diagrams), data dictionary, runbook,
 - [x] phase 4 — Airflow orchestration (eod chain + reconciliation dags), Oozie-to-Airflow migration study
 - [x] phase 5 — serving & bi: dremio on the lake, kibana ops dashboard, alert case
       handoff (appian-style), data-assistant bot grounded in the serving layer
-- [ ] stretch — Spark on Kubernetes manifests, runbook, kafka event ingestion
+- [x] kubernetes — the pipeline runs as cluster pods (kind, k8s/ manifests),
+      driver/executor rbac, spark image; docs/kubernetes.md
+- [ ] stretch — kafka event ingestion
 
 ## License
 
