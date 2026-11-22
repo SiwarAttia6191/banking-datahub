@@ -152,4 +152,4 @@ after completion (is_delete_operator_pod).
 | #35 | cluster + namespace + rbac + smoke pod | done (commit 6b490fb) |
 | #36 | the six pipeline jobs as cluster pods | done (this document's commits) |
 | #37 | airflow tasks as pods (KubernetesPodOperator) | done (commit 39e8e48 — see the operator-level section above) |
-| #38 | kubernetes runbook section | open (this doc covers the learning half) |
+| #38 | kubernetes runbook section | done (commit 36faceb - runbook §4d carries the operational half, this doc the learning half) |
