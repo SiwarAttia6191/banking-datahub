@@ -1,5 +1,7 @@
 # banking-datahub
 
+[![ci](https://github.com/SiwarAttia6191/banking-datahub/actions/workflows/ci.yml/badge.svg)](https://github.com/SiwarAttia6191/banking-datahub/actions/workflows/ci.yml)
+
 A mini banking data hub built for learning by doing: Spark/Scala pipelines, object storage,
 orchestration and CI in a laptop-sized, fully local setup. Synthetic data only — no cloud account,
 no licenses, no external services.
@@ -38,7 +40,7 @@ data contracts: [docs/datamodel.md](docs/datamodel.md)
 | Oozie → Airflow migration study (workflow.xml mapping, parallel-run cutover) | `docs/migration-guide.md` |
 | Hadoop → cloud migration track: legacy artifacts, HiveQL reference, reconciliation | `migration/`, `docs/migration-guide.md` |
 | unit tests with a local Spark session | `modules/*/src/test` |
-| CI: GitLab CI + Jenkinsfile | `.gitlab-ci.yml`, `Jenkinsfile` |
+| CI: github actions (compile + 22 tests + packaging on every push), gitlab ci + jenkinsfile | `.github/workflows/ci.yml`, `.gitlab-ci.yml`, `Jenkinsfile` |
 | Dremio: bi queries straight on the lake (no data copy) | dremio service + `docs/dremio.md` |
 | kibana ops dashboard over the serving layer (alert indexing + data views) | `scripts/publish_to_es.py`, `docs/ops-dashboard.md` |
 | column-level data dictionary for every table + the day-to-day runbook | `docs/data-dictionary.md`, `docs/runbook.md` |
